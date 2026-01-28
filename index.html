@@ -1,352 +1,158 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>ICU Code Blue Simulator</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-
-  <style>
-    html, body {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      overflow: hidden;
-      font-family: system-ui, -apple-system, BlinkMacSystemFont;
-      background: #000;
-    }
-
-    #ui {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.75);
-      color: #0f0;
-      padding: 12px;
-      border-radius: 10px;
-      width: 260px;
-    }
-
-    #ui h2 {
-      margin: 0 0 8px 0;
-      font-size: 16px;
-      color: #fff;
-    }
-
-    .vital {
-      font-size: 14px;
-      margin: 4px 0;
-    }
-
-    button {
-      width: 100%;
-      margin-top: 8px;
-      padding: 10px;
-      font-size: 14px;
-      border-radius: 8px;
-      border: none;
-      background: #222;
-      color: #fff;
-    }
-
-    button:active {
-      background: #444;
-    }
-
-    canvas {
-      width: 100%;
-      height: 100%;
-      touch-action: none;
-    }
-  </style>
-
-  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no"/>
+<title>GLB World v10 – Better Controls</title>
+<style>
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+#c{width:100vw;height:100vh;display:block}
+#hud{
+  position:fixed;top:10px;left:10px;z-index:10;
+  color:#fff;font:13px system-ui;
+  background:rgba(0,0,0,.7);padding:10px;border-radius:10px
+}
+#mobile{position:fixed;left:0;right:0;bottom:0;pointer-events:none}
+.pad{
+  pointer-events:auto;position:absolute;bottom:20px;
+  width:140px;height:140px;border-radius:999px;
+  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2)
+}
+#leftPad{left:20px}
+#rightPad{right:20px}
+.stick{
+  position:absolute;left:50%;top:50%;
+  transform:translate(-50%,-50%);
+  width:56px;height:56px;border-radius:999px;
+  background:rgba(255,255,255,.25)
+}
+</style>
 </head>
-
 <body>
 
-<div id="ui">
-  <h2>ICU Monitor</h2>
-  <div class="vital">HR: <span id="hr"></span></div>
-  <div class="vital">BP: <span id="bp"></span></div>
-  <div class="vital">SpO₂: <span id="spo2"></span></div>
-  <div class="vital">Rhythm: <span id="rhythm"></span></div>
-  <div class="vital">State: <span id="state"></span></div>
-
-  <div id="timer" class="vital">Time: 00:00</div>
-
-  <button onclick="triggerCodeBlue()">🚨 Code Blue</button>
-  <button onclick="defibrillate()">⚡ Defibrillate</button>
-  <button onclick="administerEpi()">💉 Epinephrine</button>
+<div id="hud">
+  <b>v10 Controls</b><br>
+  WASD move · Mouse look · Shift sprint<br>
+  F = fly toggle · E/Q up/down
 </div>
 
-<canvas id="renderCanvas"></canvas>
+<div id="mobile">
+  <div id="leftPad" class="pad"><div id="leftStick" class="stick"></div></div>
+  <div id="rightPad" class="pad"><div id="rightStick" class="stick"></div></div>
+</div>
+
+<canvas id="c"></canvas>
+
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 
 <script>
-// =========================
-// BABYLON SCENE SETUP
-=========================
-const canvas = document.getElementById("renderCanvas");
-const engine = new BABYLON.Engine(canvas, true);
-
+const canvas = document.getElementById("c");
+const engine = new BABYLON.Engine(canvas,true);
 const scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color4(0.04,0.1,0.12,1);
 
-// Create the camera (Universal for mobile and desktop)
-const camera = new BABYLON.UniversalCamera(
-  "Camera", 
-  new BABYLON.Vector3(0, 1, -5), 
-  scene
-);
+// Light
+new BABYLON.HemisphericLight("h",new BABYLON.Vector3(0,1,0),scene).intensity=1.2;
 
-// Attach controls to the camera (touch for mobile, mouse/keyboard for desktop)
-camera.attachControl(canvas, true);
-camera.speed = 0.5;
-camera.inertia = 0.9;
+// Camera
+const cam = new BABYLON.FollowCamera("cam",new BABYLON.Vector3(0,3,-8),scene);
+cam.radius = 8;
+cam.heightOffset = 2.2;
+cam.rotationOffset = 180;
+cam.cameraAcceleration = 0.05;
+cam.maxCameraSpeed = 20;
+cam.attachControl(canvas,true);
+scene.activeCamera = cam;
 
-// Add basic lighting
-const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+// Ground
+BABYLON.MeshBuilder.CreateGround("g",{width:500,height:500},scene);
 
-// Clear the background to dark for ICU feel
-scene.clearColor = new BABYLON.Color4(0.05, 0.05, 0.08, 1);
+// Avatar placeholder
+const avatar = BABYLON.MeshBuilder.CreateCapsule("av",{height:1.8},scene);
+avatar.position.y = 0.9;
+cam.lockedTarget = avatar;
 
-// =========================
-// Load the ICU room model
-=========================
-BABYLON.SceneLoader.Append("https://your-repo-link-to-room.glb", "", scene, (loadedScene) => {
-  loadedScene.createDefaultEnvironment();
-  camera.target = loadedScene.getMeshByName("Bed");  // Focus camera on the bed
-  camera.radius = 12;  // Adjust the camera distance
-  camera.heightOffset = 2;
-  console.log("ICU Room loaded!");
-  addInteractivity(loadedScene);
+// ---------- INPUT STATE ----------
+let yaw = 0;
+let pitch = 0;
+let flyMode = false;
+let velocity = BABYLON.Vector3.Zero();
+let move = {x:0,z:0,y:0};
+let look = {x:0,y:0};
+
+// Keyboard
+const keys = new Set();
+window.addEventListener("keydown",e=>{
+  keys.add(e.code);
+  if(e.code==="KeyF") flyMode=!flyMode;
+});
+window.addEventListener("keyup",e=>keys.delete(e.code));
+
+// Mouse look
+let pointerLocked=false;
+canvas.addEventListener("pointerdown",()=>canvas.requestPointerLock());
+document.addEventListener("pointerlockchange",()=>pointerLocked=document.pointerLockElement===canvas);
+document.addEventListener("mousemove",e=>{
+  if(pointerLocked){
+    look.x += e.movementX * 0.002;
+    look.y += e.movementY * 0.002;
+  }
 });
 
-// =========================
-// ICU PATIENT STATE MACHINE (with ACLS)
-=========================
-const PatientState = {
-  STABLE: "Stable",
-  DETERIORATING: "Deteriorating",
-  CARDIAC_ARREST: "Cardiac Arrest",
-  ROSC: "ROSC",
-  DEAD: "Death"
-};
-
-let patient = {
-  state: PatientState.STABLE,
-  hr: 82,
-  spo2: 98,
-  bpSys: 120,
-  bpDia: 80,
-  rhythm: "NSR",
-  arrestTimer: 0,
-  cprCycles: 0,
-  epiAdminTimer: 0,
-  shockWindowTimer: 0,
-  lastEpiTime: 0,
-  lastShockTime: 0
-};
-
-// =========================
-// UI UPDATE FUNCTION
-=========================
-function updateUI() {
-  document.getElementById("hr").textContent = patient.hr;
-  document.getElementById("bp").textContent = `${patient.bpSys}/${patient.bpDia}`;
-  document.getElementById("spo2").textContent = patient.spo2 + "%";
-  document.getElementById("rhythm").textContent = patient.rhythm;
-  document.getElementById("state").textContent = patient.state;
-
-  // Timer update (in minutes)
-  let minutes = Math.floor(patient.arrestTimer / 60000);
-  let seconds = Math.floor((patient.arrestTimer % 60000) / 1000);
-  document.getElementById("timer").textContent = `Time: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+// Mobile pads
+function setupPad(pad,stick,cb){
+  let active=false,id=null;
+  pad.addEventListener("pointerdown",e=>{
+    active=true;id=e.pointerId;pad.setPointerCapture(id);
+  });
+  pad.addEventListener("pointermove",e=>{
+    if(!active||e.pointerId!==id) return;
+    const r=pad.getBoundingClientRect();
+    const dx=(e.clientX-(r.left+r.width/2))/(r.width/2);
+    const dy=(e.clientY-(r.top+r.height/2))/(r.height/2);
+    cb(Math.max(-1,Math.min(1,dx)),Math.max(-1,Math.min(1,dy)));
+    stick.style.transform=`translate(${dx*40}px,${dy*40}px)`;
+  });
+  pad.addEventListener("pointerup",()=>{active=false;cb(0,0);stick.style.transform="translate(-50%,-50%)"});
 }
+setupPad(leftPad,leftStick,(x,y)=>{move.x=x;move.z=-y});
+setupPad(rightPad,rightStick,(x,y)=>{look.x+=x*0.05;look.y+=y*0.05});
 
-// =========================
-// CODE BLUE LOGIC
-=========================
-function triggerCodeBlue() {
-  if (patient.state !== PatientState.CARDIAC_ARREST) {
-    patient.state = PatientState.CARDIAC_ARREST;
-    patient.hr = 0;
-    patient.bpSys = 0;
-    patient.bpDia = 0;
-    patient.spo2 = Math.max(patient.spo2 - 10, 50);
-    patient.rhythm = "VF";
-    patient.arrestTimer = 0;
-    console.log("Code Blue Triggered!");
-  }
-}
+// ---------- UPDATE LOOP ----------
+scene.onBeforeRenderObservable.add(()=>{
+  const dt = Math.min(0.05,engine.getDeltaTime()/1000);
 
-// =========================
-// DEFIBRILLATION LOGIC
-=========================
-function defibrillate() {
-  if (patient.state === PatientState.CARDIAC_ARREST) {
-    const success = Math.random() > 0.4;  // 40% success rate for shock
-    if (success) {
-      patient.state = PatientState.ROSC;
-      patient.hr = 90;
-      patient.bpSys = 110;
-      patient.bpDia = 70;
-      patient.spo2 = 96;
-      patient.rhythm = "NSR";
-      console.log("Defibrillation successful, ROSC achieved!");
-    } else {
-      console.log("Defibrillation failed. Continue CPR.");
-    }
-    updateUI();
-  }
-}
+  // Keyboard movement
+  move.z += (keys.has("KeyW")?1:0) - (keys.has("KeyS")?1:0);
+  move.x += (keys.has("KeyD")?1:0) - (keys.has("KeyA")?1:0);
+  move.y += (keys.has("KeyE")?1:0) - (keys.has("KeyQ")?1:0);
 
-// =========================
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Babylon Bulletproof Bootstrap</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  // Look
+  yaw -= look.x;
+  pitch = BABYLON.Scalar.Clamp(pitch - look.y, -1.2, 1.2);
+  look.x=look.y=0;
 
-  <script src="https://cdn.babylonjs.com/babylon.js"></script>
-  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+  avatar.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0,yaw,0);
 
-  <style>
-    html, body {
-      width: 100%;
-      height: 100%;
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      background: #000;
-      touch-action: none;
-    }
+  // Direction vectors
+  const fwd = new BABYLON.Vector3(Math.sin(yaw),0,Math.cos(yaw));
+  const right = new BABYLON.Vector3(fwd.z,0,-fwd.x);
 
-    #renderCanvas {
-      width: 100%;
-      height: 100%;
-      touch-action: none;
-    }
+  let dir = fwd.scale(move.z).add(right.scale(move.x));
+  if(dir.lengthSquared()>1e-4) dir.normalize();
 
-    #status {
-      position: fixed;
-      top: 10px;
-      left: 10px;
-      background: rgba(0,0,0,0.75);
-      color: #0f0;
-      font-family: monospace;
-      font-size: 14px;
-      padding: 10px 14px;
-      border-radius: 12px;
-      z-index: 10;
-      max-width: 90vw;
-    }
-  </style>
-</head>
+  const baseSpeed = keys.has("ShiftLeft") ? 10 : 5;
+  velocity = BABYLON.Vector3.Lerp(velocity, dir.scale(baseSpeed), 0.15);
 
-<body>
-  <div id="status">Booting…</div>
-  <canvas id="renderCanvas"></canvas>
+  avatar.position.addInPlace(velocity.scale(dt));
+  if(flyMode) avatar.position.y += move.y * 4 * dt;
 
-  <script>
-    const statusEl = document.getElementById("status");
-    const canvas = document.getElementById("renderCanvas");
+  move.x=move.z=move.y=0;
+});
 
-    function log(msg) {
-      console.log(msg);
-      statusEl.textContent = msg;
-    }
-
-    // --- ENGINE ---
-    log("Creating engine…");
-    const engine = new BABYLON.Engine(canvas, true);
-
-    // --- SCENE ---
-    log("Creating scene…");
-    const scene = new BABYLON.Scene(engine);
-    scene.clearColor = new BABYLON.Color4(0.08, 0.08, 0.08, 1);
-
-    // --- CAMERA ---
-    log("Creating camera…");
-    const camera = new BABYLON.UniversalCamera(
-      "cam",
-      new BABYLON.Vector3(0, 1.6, -5),
-      scene
-    );
-    camera.attachControl(canvas, true);
-    camera.speed = 0.25;
-
-    // --- LIGHT ---
-    log("Creating light…");
-    const light = new BABYLON.HemisphericLight(
-      "light",
-      new BABYLON.Vector3(0, 1, 0),
-      scene
-    );
-    light.intensity = 1.0;
-
-    // --- FALLBACK GROUND (PROVES SCENE IS ALIVE) ---
-    const ground = BABYLON.MeshBuilder.CreateGround(
-      "ground",
-      { width: 10, height: 10 },
-      scene
-    );
-
-    log("Scene alive. Starting render loop…");
-
-    // --- RENDER LOOP (NEVER BLOCKED) ---
-    engine.runRenderLoop(() => {
-      scene.render();
-    });
-
-    window.addEventListener("resize", () => {
-      engine.resize();
-    });
-
-    // --- SAFE GLB LOADER ---
-    async function loadGLB(path, file) {
-      try {
-        log(`Loading ${file}…`);
-        const result = await BABYLON.SceneLoader.ImportMeshAsync(
-          null,
-          path,
-          file,
-          scene
-        );
-        log(`${file} loaded (${result.meshes.length} meshes)`);
-        return result;
-      } catch (err) {
-        console.error(err);
-        log(`${file} FAILED (scene still running)`);
-        return null;
-      }
-    }
-
-    // --- ASSET LOAD (NON-BLOCKING) ---
-    (async () => {
-      await loadGLB("glb/", "ICU.glb");
-      await loadGLB("glb/", "avatar.glb");
-      log("Boot complete.");
-    })();
-  </script>
+engine.runRenderLoop(()=>scene.render());
+window.addEventListener("resize",()=>engine.resize());
+</script>
 </body>
-</html>nephrine", { size: 0.5 }, scene);
-  epinephrine.position = new BABYLON.Vector3(4, 1, 5);
-  epinephrine.actionManager = new BABYLON.ActionManager(scene);
-  epinephrine.actionManager.registerAction(
-    new BABYLON.ExecuteCodeAction(
-      BABYLON.ActionManager.OnPickTrigger,
-      function () {
-        administerEpi();  // Trigger epinephrine administration
-      }
-    )
-  );
-}
-
-// =========================
-// SIMULATION LOOP
-=========================
-scene.onBeforeRenderObservable.add(() => {
-  if (patient.state === PatientState.CARDIAC_ARREST) {
-    patient.arrestTimer += engine.getDeltaTime();
-
-    // Periodic
+</html>
