@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>ICU Code Blue Simulator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont;
+      background: #000;
+    }
+
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.75);
+      color: #0f0;
+      padding: 12px;
+      border-radius: 10px;
+      width: 260px;
+    }
+
+    #ui h2 {
+      margin: 0 0 8px 0;
+      font-size: 16px;
+      color: #fff;
+    }
+
+    .vital {
+      font-size: 14px;
+      margin: 4px 0;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 8px;
+      padding: 10px;
+      font-size: 14px;
+      border-radius: 8px;
+      border: none;
+      background: #222;
+      color: #fff;
+    }
+
+    button:active {
+      background: #444;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+  </style>
+
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+</head>
+
+<body>
+
+<div id="ui">
+  <h2>ICU Monitor</h2>
+  <div class="vital">HR: <span id="hr"></span></div>
+  <div class="vital">BP: <span id="bp"></span></div>
+  <div class="vital">SpO₂: <span id="spo2"></span></div>
+  <div class="vital">Rhythm: <span id="rhythm"></span></div>
+  <div class="vital">State: <span id="state"></span></div>
+
+  <div id="timer" class="vital">Time: 00:00</div>
+
+  <button onclick="triggerCodeBlue()">🚨 Code Blue</button>
+  <button onclick="defibrillate()">⚡ Defibrillate</button>
+  <button onclick="administerEpi()">💉 Epinephrine</button>
+</div>
+
+<canvas id="renderCanvas"></canvas>
+
+<script>
+// =========================
+// BABYLON SCENE SETUP
+=========================
+const canvas = document.getElementById("renderCanvas");
+const engine = new BABYLON.Engine(canvas, true);
+
+const scene = new BABYLON.Scene(engine);
+
+// Create the camera (Universal for mobile and desktop)
+const camera = new BABYLON.UniversalCamera(
+  "Camera", 
+  new BABYLON.Vector3(0, 1, -5), 
+  scene
+);
+
+// Attach controls to the camera (touch for mobile, mouse/keyboard for desktop)
+camera.attachControl(canvas, true);
+camera.speed = 0.5;
+camera.inertia = 0.9;
+
+// Add basic lighting
+const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+
+// Clear the background to dark for ICU feel
+scene.clearColor = new BABYLON.Color4(0.05, 0.05, 0.08, 1);
+
+// =========================
+// Load the ICU room model
+=========================
+BABYLON.SceneLoader.Append("https://your-repo-link-to-room.glb", "", scene, (loadedScene) => {
+  loadedScene.createDefaultEnvironment();
+  camera.target = loadedScene.getMeshByName("Bed");  // Focus camera on the bed
+  camera.radius = 12;  // Adjust the camera distance
+  camera.heightOffset = 2;
+  console.log("ICU Room loaded!");
+  addInteractivity(loadedScene);
+});
+
+// =========================
+// ICU PATIENT STATE MACHINE (with ACLS)
+=========================
+const PatientState = {
+  STABLE: "Stable",
+  DETERIORATING: "Deteriorating",
+  CARDIAC_ARREST: "Cardiac Arrest",
+  ROSC: "ROSC",
+  DEAD: "Death"
+};
+
+let patient = {
+  state: PatientState.STABLE,
+  hr: 82,
+  spo2: 98,
+  bpSys: 120,
+  bpDia: 80,
+  rhythm: "NSR",
+  arrestTimer: 0,
+  cprCycles: 0,
+  epiAdminTimer: 0,
+  shockWindowTimer: 0,
+  lastEpiTime: 0,
+  lastShockTime: 0
+};
+
+// =========================
+// UI UPDATE FUNCTION
+=========================
+function updateUI() {
+  document.getElementById("hr").textContent = patient.hr;
+  document.getElementById("bp").textContent = `${patient.bpSys}/${patient.bpDia}`;
+  document.getElementById("spo2").textContent = patient.spo2 + "%";
+  document.getElementById("rhythm").textContent = patient.rhythm;
+  document.getElementById("state").textContent = patient.state;
+
+  // Timer update (in minutes)
+  let minutes = Math.floor(patient.arrestTimer / 60000);
+  let seconds = Math.floor((patient.arrestTimer % 60000) / 1000);
+  document.getElementById("timer").textContent = `Time: ${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
+// =========================
+// CODE BLUE LOGIC
+=========================
+function triggerCodeBlue() {
+  if (patient.state !== PatientState.CARDIAC_ARREST) {
+    patient.state = PatientState.CARDIAC_ARREST;
+    patient.hr = 0;
+    patient.bpSys = 0;
+    patient.bpDia = 0;
+    patient.spo2 = Math.max(patient.spo2 - 10, 50);
+    patient.rhythm = "VF";
+    patient.arrestTimer = 0;
+    console.log("Code Blue Triggered!");
+  }
+}
+
+// =========================
+// DEFIBRILLATION LOGIC
+=========================
+function defibrillate() {
+  if (patient.state === PatientState.CARDIAC_ARREST) {
+    const success = Math.random() > 0.4;  // 40% success rate for shock
+    if (success) {
+      patient.state = PatientState.ROSC;
+      patient.hr = 90;
+      patient.bpSys = 110;
+      patient.bpDia = 70;
+      patient.spo2 = 96;
+      patient.rhythm = "NSR";
+      console.log("Defibrillation successful, ROSC achieved!");
+    } else {
+      console.log("Defibrillation failed. Continue CPR.");
+    }
+    updateUI();
+  }
+}
+
+// =========================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Babylon Bulletproof Bootstrap</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+
+  <script src="https://cdn.babylonjs.com/babylon.js"></script>
+  <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background: #000;
+      touch-action: none;
+    }
+
+    #renderCanvas {
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+    }
+
+    #status {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.75);
+      color: #0f0;
+      font-family: monospace;
+      font-size: 14px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      z-index: 10;
+      max-width: 90vw;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="status">Booting…</div>
+  <canvas id="renderCanvas"></canvas>
+
+  <script>
+    const statusEl = document.getElementById("status");
+    const canvas = document.getElementById("renderCanvas");
+
+    function log(msg) {
+      console.log(msg);
+      statusEl.textContent = msg;
+    }
+
+    // --- ENGINE ---
+    log("Creating engine…");
+    const engine = new BABYLON.Engine(canvas, true);
+
+    // --- SCENE ---
+    log("Creating scene…");
+    const scene = new BABYLON.Scene(engine);
+    scene.clearColor = new BABYLON.Color4(0.08, 0.08, 0.08, 1);
+
+    // --- CAMERA ---
+    log("Creating camera…");
+    const camera = new BABYLON.UniversalCamera(
+      "cam",
+      new BABYLON.Vector3(0, 1.6, -5),
+      scene
+    );
+    camera.attachControl(canvas, true);
+    camera.speed = 0.25;
+
+    // --- LIGHT ---
+    log("Creating light…");
+    const light = new BABYLON.HemisphericLight(
+      "light",
+      new BABYLON.Vector3(0, 1, 0),
+      scene
+    );
+    light.intensity = 1.0;
+
+    // --- FALLBACK GROUND (PROVES SCENE IS ALIVE) ---
+    const ground = BABYLON.MeshBuilder.CreateGround(
+      "ground",
+      { width: 10, height: 10 },
+      scene
+    );
+
+    log("Scene alive. Starting render loop…");
+
+    // --- RENDER LOOP (NEVER BLOCKED) ---
+    engine.runRenderLoop(() => {
+      scene.render();
+    });
+
+    window.addEventListener("resize", () => {
+      engine.resize();
+    });
+
+    // --- SAFE GLB LOADER ---
+    async function loadGLB(path, file) {
+      try {
+        log(`Loading ${file}…`);
+        const result = await BABYLON.SceneLoader.ImportMeshAsync(
+          null,
+          path,
+          file,
+          scene
+        );
+        log(`${file} loaded (${result.meshes.length} meshes)`);
+        return result;
+      } catch (err) {
+        console.error(err);
+        log(`${file} FAILED (scene still running)`);
+        return null;
+      }
+    }
+
+    // --- ASSET LOAD (NON-BLOCKING) ---
+    (async () => {
+      await loadGLB("glb/", "ICU.glb");
+      await loadGLB("glb/", "avatar.glb");
+      log("Boot complete.");
+    })();
+  </script>
+</body>
+</html>nephrine", { size: 0.5 }, scene);
+  epinephrine.position = new BABYLON.Vector3(4, 1, 5);
+  epinephrine.actionManager = new BABYLON.ActionManager(scene);
+  epinephrine.actionManager.registerAction(
+    new BABYLON.ExecuteCodeAction(
+      BABYLON.ActionManager.OnPickTrigger,
+      function () {
+        administerEpi();  // Trigger epinephrine administration
+      }
+    )
+  );
+}
+
+// =========================
+// SIMULATION LOOP
+=========================
+scene.onBeforeRenderObservable.add(() => {
+  if (patient.state === PatientState.CARDIAC_ARREST) {
+    patient.arrestTimer += engine.getDeltaTime();
+
+    // Periodic
