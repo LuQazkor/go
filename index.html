@@ -1,158 +1,154 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no"/>
-<title>GLB World v10 – Better Controls</title>
+<meta charset="utf-8">
+<title>ICU Simulator v12 (3rd Person)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
 <style>
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
-#c{width:100vw;height:100vh;display:block}
-#hud{
-  position:fixed;top:10px;left:10px;z-index:10;
-  color:#fff;font:13px system-ui;
-  background:rgba(0,0,0,.7);padding:10px;border-radius:10px
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  touch-action: none;
 }
-#mobile{position:fixed;left:0;right:0;bottom:0;pointer-events:none}
-.pad{
-  pointer-events:auto;position:absolute;bottom:20px;
-  width:140px;height:140px;border-radius:999px;
-  background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2)
-}
-#leftPad{left:20px}
-#rightPad{right:20px}
-.stick{
-  position:absolute;left:50%;top:50%;
-  transform:translate(-50%,-50%);
-  width:56px;height:56px;border-radius:999px;
-  background:rgba(255,255,255,.25)
+#renderCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 </style>
 </head>
+
 <body>
-
-<div id="hud">
-  <b>v10 Controls</b><br>
-  WASD move · Mouse look · Shift sprint<br>
-  F = fly toggle · E/Q up/down
-</div>
-
-<div id="mobile">
-  <div id="leftPad" class="pad"><div id="leftStick" class="stick"></div></div>
-  <div id="rightPad" class="pad"><div id="rightStick" class="stick"></div></div>
-</div>
-
-<canvas id="c"></canvas>
+<canvas id="renderCanvas"></canvas>
 
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 
 <script>
-const canvas = document.getElementById("c");
-const engine = new BABYLON.Engine(canvas,true);
-const scene = new BABYLON.Scene(engine);
-scene.clearColor = new BABYLON.Color4(0.04,0.1,0.12,1);
+const canvas = document.getElementById("renderCanvas");
+const engine = new BABYLON.Engine(canvas, true);
 
-// Light
-new BABYLON.HemisphericLight("h",new BABYLON.Vector3(0,1,0),scene).intensity=1.2;
+const createScene = async () => {
+  const scene = new BABYLON.Scene(engine);
+  scene.gravity = new BABYLON.Vector3(0, -0.6, 0);
+  scene.collisionsEnabled = true;
 
-// Camera
-const cam = new BABYLON.FollowCamera("cam",new BABYLON.Vector3(0,3,-8),scene);
-cam.radius = 8;
-cam.heightOffset = 2.2;
-cam.rotationOffset = 180;
-cam.cameraAcceleration = 0.05;
-cam.maxCameraSpeed = 20;
-cam.attachControl(canvas,true);
-scene.activeCamera = cam;
+  new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
-// Ground
-BABYLON.MeshBuilder.CreateGround("g",{width:500,height:500},scene);
+  /* ================= ICU ROOM ================= */
+  const roomResult = await BABYLON.SceneLoader.ImportMeshAsync(
+    "", "/glb/", "ICU.glb", scene
+  );
+  roomResult.meshes.forEach(m => m.checkCollisions = true);
 
-// Avatar placeholder
-const avatar = BABYLON.MeshBuilder.CreateCapsule("av",{height:1.8},scene);
-avatar.position.y = 0.9;
-cam.lockedTarget = avatar;
+  /* ================= PLAYER ROOT ================= */
+  const playerRoot = new BABYLON.TransformNode("playerRoot", scene);
+  playerRoot.position = new BABYLON.Vector3(0, 0, 0);
+  playerRoot.ellipsoid = new BABYLON.Vector3(0.35, 0.9, 0.35);
+  playerRoot.ellipsoidOffset = new BABYLON.Vector3(0, 0.9, 0);
 
-// ---------- INPUT STATE ----------
-let yaw = 0;
-let pitch = 0;
-let flyMode = false;
-let velocity = BABYLON.Vector3.Zero();
-let move = {x:0,z:0,y:0};
-let look = {x:0,y:0};
+  /* ================= AVATAR ================= */
+  const avatarResult = await BABYLON.SceneLoader.ImportMeshAsync(
+    "", "/glb/", "avatar.glb", scene
+  );
+  const avatar = avatarResult.meshes.find(m => m.getTotalVertices() > 0);
+  avatar.parent = playerRoot;
 
-// Keyboard
-const keys = new Set();
-window.addEventListener("keydown",e=>{
-  keys.add(e.code);
-  if(e.code==="KeyF") flyMode=!flyMode;
-});
-window.addEventListener("keyup",e=>keys.delete(e.code));
+  // Normalize avatar to ~1.7m human
+  const bounds = avatar.getHierarchyBoundingVectors();
+  const height = bounds.max.y - bounds.min.y;
+  const scale = 1.7 / height;
+  avatar.scaling.setAll(scale);
+  avatar.position.set(0, 0, 0);
 
-// Mouse look
-let pointerLocked=false;
-canvas.addEventListener("pointerdown",()=>canvas.requestPointerLock());
-document.addEventListener("pointerlockchange",()=>pointerLocked=document.pointerLockElement===canvas);
-document.addEventListener("mousemove",e=>{
-  if(pointerLocked){
-    look.x += e.movementX * 0.002;
-    look.y += e.movementY * 0.002;
+  /* ================= CAMERA ================= */
+  const camera = new BABYLON.FollowCamera(
+    "followCam",
+    new BABYLON.Vector3(0, 2, -6),
+    scene
+  );
+  camera.lockedTarget = playerRoot;
+  camera.radius = 6;
+  camera.heightOffset = 2;
+  camera.rotationOffset = 180;
+  camera.cameraAcceleration = 0.05;
+  camera.maxCameraSpeed = 8;
+  camera.attachControl(canvas, true);
+
+  /* ================= DESKTOP INPUT ================= */
+  const inputMap = {};
+  scene.actionManager = new BABYLON.ActionManager(scene);
+  scene.actionManager.registerAction(
+    new BABYLON.ExecuteCodeAction(
+      BABYLON.ActionManager.OnKeyDownTrigger,
+      evt => inputMap[evt.sourceEvent.key.toLowerCase()] = true
+    )
+  );
+  scene.actionManager.registerAction(
+    new BABYLON.ExecuteCodeAction(
+      BABYLON.ActionManager.OnKeyUpTrigger,
+      evt => inputMap[evt.sourceEvent.key.toLowerCase()] = false
+    )
+  );
+
+  /* ================= MOBILE JOYSTICKS ================= */
+  let leftJoy = null;
+  let rightJoy = null;
+
+  if (BABYLON.VirtualJoystick) {
+    leftJoy = new BABYLON.VirtualJoystick(true);
+    leftJoy.setJoystickSensibility(0.15);
+    leftJoy.setJoystickColor("cyan");
+
+    rightJoy = new BABYLON.VirtualJoystick(false);
+    rightJoy.setJoystickSensibility(0.07);
+    rightJoy.setJoystickColor("orange");
   }
+
+  /* ================= MOVEMENT LOOP ================= */
+  scene.onBeforeRenderObservable.add(() => {
+    let moveX = 0;
+    let moveZ = 0;
+
+    // Desktop
+    if (inputMap["w"]) moveZ += 1;
+    if (inputMap["s"]) moveZ -= 1;
+    if (inputMap["a"]) moveX -= 1;
+    if (inputMap["d"]) moveX += 1;
+
+    // Mobile joystick
+    if (leftJoy) {
+      moveX += leftJoy.deltaPosition.x;
+      moveZ += leftJoy.deltaPosition.y;
+    }
+
+    if (moveX !== 0 || moveZ !== 0) {
+      const move = new BABYLON.Vector3(moveX, 0, moveZ).normalize();
+      const forward = camera.getForwardRay().direction;
+      const right = BABYLON.Vector3.Cross(forward, BABYLON.Axis.Y);
+      const direction = forward.scale(move.z).add(right.scale(move.x));
+
+      playerRoot.moveWithCollisions(direction.scale(0.05));
+      avatar.rotation.y = Math.atan2(direction.x, direction.z);
+    }
+
+    // Right joystick look
+    if (rightJoy) {
+      camera.rotationOffset += rightJoy.deltaPosition.x * 2;
+    }
+  });
+
+  return scene;
+};
+
+createScene().then(scene => {
+  engine.runRenderLoop(() => scene.render());
 });
 
-// Mobile pads
-function setupPad(pad,stick,cb){
-  let active=false,id=null;
-  pad.addEventListener("pointerdown",e=>{
-    active=true;id=e.pointerId;pad.setPointerCapture(id);
-  });
-  pad.addEventListener("pointermove",e=>{
-    if(!active||e.pointerId!==id) return;
-    const r=pad.getBoundingClientRect();
-    const dx=(e.clientX-(r.left+r.width/2))/(r.width/2);
-    const dy=(e.clientY-(r.top+r.height/2))/(r.height/2);
-    cb(Math.max(-1,Math.min(1,dx)),Math.max(-1,Math.min(1,dy)));
-    stick.style.transform=`translate(${dx*40}px,${dy*40}px)`;
-  });
-  pad.addEventListener("pointerup",()=>{active=false;cb(0,0);stick.style.transform="translate(-50%,-50%)"});
-}
-setupPad(leftPad,leftStick,(x,y)=>{move.x=x;move.z=-y});
-setupPad(rightPad,rightStick,(x,y)=>{look.x+=x*0.05;look.y+=y*0.05});
-
-// ---------- UPDATE LOOP ----------
-scene.onBeforeRenderObservable.add(()=>{
-  const dt = Math.min(0.05,engine.getDeltaTime()/1000);
-
-  // Keyboard movement
-  move.z += (keys.has("KeyW")?1:0) - (keys.has("KeyS")?1:0);
-  move.x += (keys.has("KeyD")?1:0) - (keys.has("KeyA")?1:0);
-  move.y += (keys.has("KeyE")?1:0) - (keys.has("KeyQ")?1:0);
-
-  // Look
-  yaw -= look.x;
-  pitch = BABYLON.Scalar.Clamp(pitch - look.y, -1.2, 1.2);
-  look.x=look.y=0;
-
-  avatar.rotationQuaternion = BABYLON.Quaternion.FromEulerAngles(0,yaw,0);
-
-  // Direction vectors
-  const fwd = new BABYLON.Vector3(Math.sin(yaw),0,Math.cos(yaw));
-  const right = new BABYLON.Vector3(fwd.z,0,-fwd.x);
-
-  let dir = fwd.scale(move.z).add(right.scale(move.x));
-  if(dir.lengthSquared()>1e-4) dir.normalize();
-
-  const baseSpeed = keys.has("ShiftLeft") ? 10 : 5;
-  velocity = BABYLON.Vector3.Lerp(velocity, dir.scale(baseSpeed), 0.15);
-
-  avatar.position.addInPlace(velocity.scale(dt));
-  if(flyMode) avatar.position.y += move.y * 4 * dt;
-
-  move.x=move.z=move.y=0;
-});
-
-engine.runRenderLoop(()=>scene.render());
-window.addEventListener("resize",()=>engine.resize());
+window.addEventListener("resize", () => engine.resize());
 </script>
 </body>
 </html>
