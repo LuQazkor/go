@@ -16,12 +16,50 @@ html, body {
   width: 100%;
   height: 100%;
   touch-action: none;
+  display:block;
+}
+
+/* Thumb zones (no visible UI, just input areas) */
+.zone {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 50%;
+  z-index: 10;
+  touch-action: none;
+}
+#leftZone { left: 0; }
+#rightZone { right: 0; }
+
+/* Minimal joystick visuals (optional but helps) */
+#stickBase, #stickKnob{
+  position: fixed;
+  border-radius: 999px;
+  transform: translate(-50%,-50%);
+  pointer-events: none;
+  opacity: 0;
+  z-index: 20;
+}
+#stickBase{
+  width: 140px; height: 140px;
+  border: 2px solid rgba(255,255,255,.25);
+  background: rgba(255,255,255,.06);
+}
+#stickKnob{
+  width: 70px; height: 70px;
+  border: 2px solid rgba(255,255,255,.45);
+  background: rgba(255,255,255,.10);
 }
 </style>
 </head>
 
 <body>
 <canvas id="renderCanvas"></canvas>
+
+<div id="leftZone" class="zone"></div>
+<div id="rightZone" class="zone"></div>
+<div id="stickBase"></div>
+<div id="stickKnob"></div>
 
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
@@ -36,21 +74,17 @@ scene.clearColor = new BABYLON.Color4(0.05,0.07,0.08,1);
 // LIGHT
 new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
-// CAMERA — Babylon official controller
+// CAMERA — keep your same camera + starting position
 const camera = new BABYLON.UniversalCamera(
   "cam",
   new BABYLON.Vector3(0, 1.6, -4),
   scene
 );
-camera.attachControl(canvas, true);
-camera.speed = 0.15;
-camera.angularSensibility = 4000;
 camera.minZ = 0.05;
 
-// Mobile-friendly inputs
+// IMPORTANT: disable Babylon default controls so they don't fight our avatar controls
+camera.detachControl(canvas);
 camera.inputs.clear();
-camera.inputs.addTouch();
-camera.inputs.addVirtualJoystick();
 
 // FLOOR (temp visual reference)
 const ground = BABYLON.MeshBuilder.CreateGround(
@@ -60,7 +94,7 @@ const ground = BABYLON.MeshBuilder.CreateGround(
 );
 ground.isVisible = false;
 
-// LOAD ICU ROOM
+// LOAD ICU ROOM (UNCHANGED)
 BABYLON.SceneLoader.ImportMesh(
   "",
   "./glb/",
@@ -73,32 +107,172 @@ BABYLON.SceneLoader.ImportMesh(
   }
 );
 
-// LOAD AVATAR
+// --------- CONTROLS (ONLY ADDITION) ----------
+const leftZone  = document.getElementById("leftZone");
+const rightZone = document.getElementById("rightZone");
+const stickBase = document.getElementById("stickBase");
+const stickKnob = document.getElementById("stickKnob");
+
+let movePointerId = null;
+let lookPointerId = null;
+
+let baseX = 0, baseY = 0;
+let moveX = 0, moveY = 0; // -1..1
+let lastLookX = 0, lastLookY = 0;
+
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+function showStick(x,y){
+  stickBase.style.left = x + "px";
+  stickBase.style.top  = y + "px";
+  stickKnob.style.left = x + "px";
+  stickKnob.style.top  = y + "px";
+  stickBase.style.opacity = "1";
+  stickKnob.style.opacity = "1";
+}
+function hideStick(){
+  stickBase.style.opacity = "0";
+  stickKnob.style.opacity = "0";
+}
+function setKnob(x,y){
+  stickKnob.style.left = x + "px";
+  stickKnob.style.top  = y + "px";
+}
+
+// Left thumb joystick => avatar movement
+leftZone.addEventListener("pointerdown", (e) => {
+  leftZone.setPointerCapture(e.pointerId);
+  movePointerId = e.pointerId;
+  baseX = e.clientX; baseY = e.clientY;
+  moveX = 0; moveY = 0;
+  showStick(baseX, baseY);
+}, { passive:false });
+
+leftZone.addEventListener("pointermove", (e) => {
+  if (e.pointerId !== movePointerId) return;
+  const dx = e.clientX - baseX;
+  const dy = e.clientY - baseY;
+
+  const maxR = 55;
+  const r = Math.hypot(dx, dy);
+  const nx = (r > 0) ? dx / r : 0;
+  const ny = (r > 0) ? dy / r : 0;
+  const rr = Math.min(maxR, r);
+
+  setKnob(baseX + nx*rr, baseY + ny*rr);
+
+  moveX = clamp(dx / maxR, -1, 1);
+  moveY = clamp(-dy / maxR, -1, 1); // up = forward
+  e.preventDefault();
+}, { passive:false });
+
+function endMove(e){
+  if (e.pointerId !== movePointerId) return;
+  movePointerId = null;
+  moveX = 0; moveY = 0;
+  hideStick();
+}
+leftZone.addEventListener("pointerup", endMove, { passive:true });
+leftZone.addEventListener("pointercancel", endMove, { passive:true });
+
+// Right thumb drag => look (camera yaw/pitch)
+let yaw = 0;               // radians
+let pitch = 0;             // radians
+const PITCH_MIN = -0.85;   // ~ -49°
+const PITCH_MAX =  0.45;   // ~ 26°
+
+rightZone.addEventListener("pointerdown", (e) => {
+  rightZone.setPointerCapture(e.pointerId);
+  lookPointerId = e.pointerId;
+  lastLookX = e.clientX;
+  lastLookY = e.clientY;
+}, { passive:false });
+
+rightZone.addEventListener("pointermove", (e) => {
+  if (e.pointerId !== lookPointerId) return;
+
+  const dx = e.clientX - lastLookX;
+  const dy = e.clientY - lastLookY;
+  lastLookX = e.clientX;
+  lastLookY = e.clientY;
+
+  const sens = 0.0055;
+  yaw   -= dx * sens;
+  pitch -= dy * sens;
+  pitch = clamp(pitch, PITCH_MIN, PITCH_MAX);
+
+  e.preventDefault();
+}, { passive:false });
+
+function endLook(e){
+  if (e.pointerId !== lookPointerId) return;
+  lookPointerId = null;
+}
+rightZone.addEventListener("pointerup", endLook, { passive:true });
+rightZone.addEventListener("pointercancel", endLook, { passive:true });
+
+// --------- AVATAR + CAMERA FOLLOW (same behavior, but driven by our yaw/pitch) ----------
+let avatarRoot = null;
+
+// Load AVATAR (YOUR LOAD, only adds movement + uses your “camera behind avatar” idea)
 BABYLON.SceneLoader.ImportMesh(
   "",
   "./glb/",
   "avatar.glb",
   scene,
   (meshes) => {
-    const avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
+    avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
 
     meshes.forEach(m => {
       m.parent = avatarRoot;
       m.isPickable = false;
     });
 
-    // NORMALIZE SIZE
+    // NORMALIZE SIZE (unchanged)
     avatarRoot.scaling.scaleInPlace(0.01);
 
-    // PLACE ON FLOOR
+    // PLACE ON FLOOR (unchanged)
     avatarRoot.position = new BABYLON.Vector3(0, 0, 0);
 
-    // CAMERA FOLLOW (3rd person)
+    // LOCKED 3RD PERSON CAMERA + AVATAR MOVEMENT
+    const camHeight = 1.6;
+    const camDist   = 3.0;
+    const moveSpeed = 2.2; // units/sec (tune if you want)
+
     scene.onBeforeRenderObservable.add(() => {
-      const forward = camera.getDirection(BABYLON.Axis.Z);
+      if (!avatarRoot) return;
+
+      const dt = engine.getDeltaTime() / 1000;
+
+      // Move avatar in camera-heading space (yaw)
+      if (moveX !== 0 || moveY !== 0) {
+        const forward = new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+        const right   = new BABYLON.Vector3(Math.sin(yaw + Math.PI/2), 0, Math.cos(yaw + Math.PI/2));
+
+        const v = right.scale(moveX).addInPlace(forward.scale(moveY));
+        const len = v.length();
+        if (len > 0.00001) {
+          v.scaleInPlace((moveSpeed * dt) / len); // normalize then scale
+          avatarRoot.position.addInPlace(v);
+
+          // Optional: rotate avatar to face movement direction (keeps “behind” feeling correct)
+          const faceYaw = Math.atan2(v.x, v.z);
+          avatarRoot.rotation.y = faceYaw;
+        }
+      }
+
+      // Camera locked behind avatar at fixed offset (your requirement)
+      const behind = new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).scale(camDist);
+
+      // apply pitch by lifting camera a bit more/less (still behind)
+      const pitchLift = Math.sin(pitch) * 1.2;
+
       camera.position = avatarRoot.position
-        .add(new BABYLON.Vector3(0, 1.6, 0))
-        .subtract(forward.scale(3));
+        .add(new BABYLON.Vector3(0, camHeight + pitchLift, 0))
+        .subtract(behind);
+
+      // Look at avatar (stable 3rd person)
+      camera.setTarget(avatarRoot.position.add(new BABYLON.Vector3(0, camHeight, 0)));
     });
   }
 );
