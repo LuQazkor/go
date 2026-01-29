@@ -1,132 +1,147 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<title>ICU DEBUG BUILD</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta charset="utf-8" />
+<title>ICU Third Person</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no"/>
+
 <style>
 html, body {
   width: 100%;
   height: 100%;
   margin: 0;
   overflow: hidden;
+  touch-action: none;
   background: #000;
 }
 #renderCanvas {
   width: 100%;
   height: 100%;
-  touch-action: none;
-}
-#debug {
-  position: fixed;
-  bottom: 10px;
-  left: 10px;
-  color: #0f0;
-  font: 12px monospace;
-  z-index: 10;
-  background: rgba(0,0,0,0.6);
-  padding: 6px;
-  border-radius: 6px;
+  display: block;
 }
 </style>
+
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 </head>
 
 <body>
 <canvas id="renderCanvas"></canvas>
-<div id="debug">booting…</div>
-
-<script src="https://cdn.babylonjs.com/babylon.js"></script>
-<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 
 <script>
-const dbg = document.getElementById("debug");
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
-const scene = new BABYLON.Scene(engine);
-scene.clearColor = new BABYLON.Color4(0.05,0.06,0.07,1);
 
-// light
-new BABYLON.HemisphericLight("l", new BABYLON.Vector3(0,1,0), scene);
+const createScene = async () => {
+  const scene = new BABYLON.Scene(engine);
+  scene.clearColor = new BABYLON.Color3(0,0,0);
 
-// player
-const player = new BABYLON.TransformNode("player", scene);
-player.position.set(0,0,0);
+  scene.collisionsEnabled = true;
+  scene.gravity = new BABYLON.Vector3(0, -0.3, 0);
 
-// camera
-const camera = new BABYLON.FollowCamera(
-  "cam",
-  new BABYLON.Vector3(0,2,-4),
-  scene
-);
-camera.radius = 4;
-camera.heightOffset = 1.6;
-camera.rotationOffset = 180;
-camera.lockedTarget = player;
+  // Light
+  const light = new BABYLON.HemisphericLight(
+    "light",
+    new BABYLON.Vector3(0, 1, 0),
+    scene
+  );
+  light.intensity = 0.9;
 
-// room
-BABYLON.SceneLoader.ImportMesh("", "./glb/", "ICU.glb", scene);
+  // Load ICU room
+  const roomResult = await BABYLON.SceneLoader.ImportMeshAsync(
+    "",
+    "./glb/",
+    "ICU.glb",
+    scene
+  );
 
-// avatar
-BABYLON.SceneLoader.ImportMesh("", "./glb/", "avatar.glb", scene, (meshes)=>{
-  meshes.forEach(m=>m.parent=player);
-  player.scaling.setAll(0.01);
+  roomResult.meshes.forEach(m => {
+    m.checkCollisions = true;
+  });
 
-  const b = meshes[0].getHierarchyBoundingVectors();
-  player.position.y = (b.max.y - b.min.y) / 2;
+  // Load avatar
+  const avatarResult = await BABYLON.SceneLoader.ImportMeshAsync(
+    "",
+    "./glb/",
+    "avatar.glb",   // 👈 CHANGE NAME IF NEEDED
+    scene
+  );
+
+  const avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
+  avatarResult.meshes.forEach(m => {
+    if (m !== avatarResult.meshes[0]) {
+      m.parent = avatarRoot;
+    }
+  });
+
+  // Normalize avatar scale
+  const bounds = avatarRoot.getHierarchyBoundingVectors();
+  const height = bounds.max.y - bounds.min.y;
+  const scale = 1.7 / height; // human height
+  avatarRoot.scaling.setAll(scale);
+
+  // Start position
+  avatarRoot.position = new BABYLON.Vector3(0, 0, 0);
+  avatarRoot.checkCollisions = true;
+
+  // Invisible collision body (NO white capsule)
+  const collider = BABYLON.MeshBuilder.CreateCapsule("collider", {
+    height: 1.7,
+    radius: 0.35
+  }, scene);
+  collider.isVisible = false;
+  collider.position.y = 0.85;
+  collider.checkCollisions = true;
+  collider.applyGravity = true;
+
+  avatarRoot.parent = collider;
+
+  // THIRD PERSON CAMERA (Babylon native)
+  const camera = new BABYLON.ArcRotateCamera(
+    "camera",
+    Math.PI,
+    Math.PI / 3,
+    3.5,
+    collider.position,
+    scene
+  );
+
+  camera.attachControl(canvas, true);
+  camera.lowerRadiusLimit = 2;
+  camera.upperRadiusLimit = 6;
+  camera.wheelPrecision = 100;
+  camera.panningSensibility = 0;
+  camera.angularSensibilityX = 4000;
+  camera.angularSensibilityY = 4000;
+
+  // Mobile joystick movement (Babylon)
+  camera.inputs.removeByType("ArcRotateCameraKeyboardMoveInput");
+  camera.inputs.addVirtualJoystick();
+
+  scene.onBeforeRenderObservable.add(() => {
+    const fwd = camera.getDirection(BABYLON.Axis.Z);
+    fwd.y = 0;
+    fwd.normalize();
+
+    const speed = 0.06;
+    if (camera.inputs.attached.virtualJoystick?.pressed) {
+      collider.moveWithCollisions(fwd.scale(speed));
+      avatarRoot.rotation.y = Math.atan2(fwd.x, fwd.z);
+    }
+  });
+
+  return scene;
+};
+
+createScene().then(scene => {
+  engine.runRenderLoop(() => {
+    scene.render();
+  });
 });
 
-// joystick
-const stick = new BABYLON.VirtualJoystick(true);
-stick.setJoystickSensibility(0.2);
-stick.reverseUpDown = true;
-
-// camera drag
-let lastX = null;
-let dragDX = 0;
-
-scene.onPointerObservable.add((evt)=>{
-  const e = evt.event;
-  if (evt.type === BABYLON.PointerEventTypes.POINTERDOWN) {
-    if (e.clientX > window.innerWidth * 0.4) lastX = e.clientX;
-  }
-  if (evt.type === BABYLON.PointerEventTypes.POINTERMOVE && lastX !== null) {
-    dragDX = e.clientX - lastX;
-    player.rotation.y += dragDX * 0.005;
-    lastX = e.clientX;
-  }
-  if (evt.type === BABYLON.PointerEventTypes.POINTERUP) {
-    lastX = null;
-    dragDX = 0;
-  }
+window.addEventListener("resize", () => {
+  engine.resize();
 });
-
-// update
-scene.onBeforeRenderObservable.add(()=>{
-  const mx = stick.deltaPosition.x;
-  const mz = stick.deltaPosition.y;
-
-  const speed = 0.04;
-  if (Math.abs(mx) + Math.abs(mz) > 0.01) {
-    const f = new BABYLON.Vector3(
-      Math.sin(player.rotation.y), 0,
-      Math.cos(player.rotation.y)
-    );
-    const r = new BABYLON.Vector3(
-      Math.sin(player.rotation.y + Math.PI/2), 0,
-      Math.cos(player.rotation.y + Math.PI/2)
-    );
-    player.position.addInPlace(f.scale(mz * speed));
-    player.position.addInPlace(r.scale(mx * speed));
-  }
-
-  dbg.innerText =
-    `joystick x:${mx.toFixed(2)} z:${mz.toFixed(2)}\n` +
-    `drag dx:${dragDX.toFixed(1)}\n` +
-    `pos x:${player.position.x.toFixed(2)} z:${player.position.z.toFixed(2)}`;
-});
-
-engine.runRenderLoop(()=>scene.render());
-window.addEventListener("resize", ()=>engine.resize());
 </script>
 </body>
 </html>
