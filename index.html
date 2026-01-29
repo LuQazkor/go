@@ -1,43 +1,36 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="utf-8" />
-<title>ICU Third Person – Stable Debug</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-
+<meta charset="utf-8">
+<title>ICU Third Person – FIXED</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
 html, body {
-    width: 100%;
-    height: 100%;
-    margin: 0;
-    overflow: hidden;
-    background: #000;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #000;
 }
 #renderCanvas {
-    width: 100%;
-    height: 100%;
-    touch-action: none;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
 }
-#hud {
-    position: absolute;
-    left: 10px;
-    bottom: 10px;
-    background: rgba(0,0,0,0.8);
-    color: #00ff88;
-    font-family: monospace;
-    font-size: 12px;
-    padding: 8px;
-    border-radius: 6px;
-    z-index: 10;
-    min-width: 260px;
-    white-space: pre;
+#hint {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  color: #0f0;
+  font: 14px monospace;
+  z-index: 10;
 }
 </style>
 </head>
 
 <body>
+<div id="hint">Drag = look • Left thumb = move</div>
 <canvas id="renderCanvas"></canvas>
-<div id="hud">Booting…</div>
 
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
@@ -45,109 +38,78 @@ html, body {
 <script>
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
-const hud = document.getElementById("hud");
-
 const scene = new BABYLON.Scene(engine);
-scene.clearColor = new BABYLON.Color3(0.05, 0.05, 0.05);
+scene.clearColor = new BABYLON.Color4(0.04,0.06,0.07,1);
 
 // LIGHT
-const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
-light.intensity = 1.2;
+new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
-// CAMERA (THIRD PERSON, MOBILE SAFE)
-const camera = new BABYLON.ArcRotateCamera(
-    "camera",
-    Math.PI,
-    Math.PI / 2.3,
-    5,
-    BABYLON.Vector3.Zero(),
-    scene
-);
-camera.minZ = 0.05;
-camera.lowerRadiusLimit = 1.5;
-camera.upperRadiusLimit = 20;
-camera.wheelPrecision = 80;
-camera.pinchPrecision = 200;
-camera.upperBetaLimit = Math.PI / 2.05;
+// GROUND (physics reference)
+const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 50, height: 50 }, scene);
+ground.isVisible = false;
+
+// FOLLOW CAMERA (OFFICIAL BABYLON 3RD PERSON)
+const camera = new BABYLON.FollowCamera("followCam", new BABYLON.Vector3(0, 2, -6), scene);
+camera.radius = 6;
+camera.heightOffset = 1.6;
+camera.rotationOffset = 180;
+camera.cameraAcceleration = 0.05;
+camera.maxCameraSpeed = 10;
 camera.attachControl(canvas, true);
-scene.activeCamera = camera;
 
-// DEBUG AXES (visual sanity check)
-BABYLON.AxesViewer.CreateAxesViewer(scene, 1);
-
-// LOAD ICU
-BABYLON.SceneLoader.ImportMesh(
-    "",
-    "/glb/",
-    "ICU.glb",
-    scene,
-    (meshes) => {
-        // Compute bounds
-        let min = new BABYLON.Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
-        let max = new BABYLON.Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
-
-        meshes.forEach(m => {
-            if (!m.getBoundingInfo) return;
-            const b = m.getBoundingInfo().boundingBox;
-            min = BABYLON.Vector3.Minimize(min, b.minimumWorld);
-            max = BABYLON.Vector3.Maximize(max, b.maximumWorld);
-        });
-
-        const center = min.add(max).scale(0.5);
-        const size = max.subtract(min);
-        const radius = size.length() * 0.6;
-
-        camera.target.copyFrom(center);
-        camera.radius = radius;
-        camera.beta = Math.PI / 2.3;
-
-        hud.textContent =
-            "ICU LOADED\n" +
-            "Center: " + center.toString() + "\n" +
-            "Size: " + size.toString() + "\n" +
-            "Radius: " + radius.toFixed(2);
-    },
-    null,
-    (scene, msg) => {
-        hud.textContent = "ICU LOAD ERROR:\n" + msg;
-    }
-);
-
-// LOAD AVATAR
-let avatarRoot = null;
-
-BABYLON.SceneLoader.ImportMesh(
-    "",
-    "/glb/",
-    "avatar.glb",
-    scene,
-    (meshes) => {
-        avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
-        meshes.forEach(m => {
-            if (!m.parent) m.parent = avatarRoot;
-        });
-
-        avatarRoot.scaling.setAll(1);
-
-        // Drop avatar to floor after ICU loads
-        avatarRoot.position.y = 0;
-
-        camera.lockedTarget = avatarRoot;
-
-        hud.textContent += "\nAvatar loaded";
-    },
-    null,
-    (scene, msg) => {
-        hud.textContent += "\nAVATAR ERROR:\n" + msg;
-    }
-);
-
-// RENDER LOOP
-engine.runRenderLoop(() => {
-    scene.render();
+// LOAD ICU ROOM
+BABYLON.SceneLoader.ImportMesh("", "./glb/", "ICU.glb", scene, (meshes) => {
+  meshes.forEach(m => m.checkCollisions = true);
 });
 
-// RESIZE
+// PLAYER ROOT
+const player = new BABYLON.TransformNode("player", scene);
+player.position = new BABYLON.Vector3(0, 0, 0);
+
+// LOAD AVATAR
+BABYLON.SceneLoader.ImportMesh("", "./glb/", "avatar.glb", scene, (meshes) => {
+  meshes.forEach(m => {
+    m.parent = player;
+    m.isPickable = false;
+  });
+
+  // HARD NORMALIZE SCALE
+  player.scaling.setAll(0.01);
+
+  // FORCE FEET TO FLOOR
+  const bounds = meshes[0].getHierarchyBoundingVectors();
+  const height = bounds.max.y - bounds.min.y;
+  player.position.y = height / 2;
+
+  // CAMERA TARGET
+  camera.lockedTarget = player;
+});
+
+// MOBILE MOVEMENT (REAL)
+let forward = 0;
+let turn = 0;
+
+scene.onPointerObservable.add((evt) => {
+  if (evt.type === BABYLON.PointerEventTypes.POINTERDOWN) {
+    forward = 1;
+  }
+  if (evt.type === BABYLON.PointerEventTypes.POINTERUP) {
+    forward = 0;
+  }
+});
+
+scene.onBeforeRenderObservable.add(() => {
+  const speed = 0.05;
+  player.rotation.y += turn;
+  const dir = new BABYLON.Vector3(
+    Math.sin(player.rotation.y),
+    0,
+    Math.cos(player.rotation.y)
+  );
+  player.position.addInPlace(dir.scale(forward * speed));
+});
+
+engine.runRenderLoop(() => scene.render());
 window.addEventListener("resize", () => engine.resize());
 </script>
 </body>
