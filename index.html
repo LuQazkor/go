@@ -2,74 +2,35 @@
 <html>
 <head>
 <meta charset="utf-8" />
-<title>ICU Third-Person Mobile</title>
+<title>BLUE — ICU Third Person</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
 <style>
-html, body {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  overflow: hidden;
-  background: #000;
-}
-#renderCanvas {
-  width: 100%;
-  height: 100%;
-  touch-action: none;
-  display:block;
-}
+html, body { width:100%; height:100%; margin:0; overflow:hidden; background:#000; }
+#renderCanvas { width:100%; height:100%; touch-action:none; display:block; }
 
-/* Thumb zones (no visible UI, just input areas) */
-.zone {
-  position: fixed;
-  top: 0;
-  bottom: 0;
-  width: 50%;
-  z-index: 10;
-  touch-action: none;
-}
-#leftZone { left: 0; }
-#rightZone { right: 0; }
+.zone { position:fixed; top:0; bottom:0; width:50%; z-index:10; touch-action:none; }
+#leftZone { left:0; }
+#rightZone { right:0; }
 
-/* Minimal joystick visuals */
 #stickBase, #stickKnob{
-  position: fixed;
-  border-radius: 999px;
-  transform: translate(-50%,-50%);
-  pointer-events: none;
-  opacity: 0;
-  z-index: 20;
+  position:fixed; border-radius:999px; transform:translate(-50%,-50%);
+  pointer-events:none; opacity:0; z-index:20;
 }
-#stickBase{
-  width: 140px; height: 140px;
-  border: 2px solid rgba(255,255,255,.25);
-  background: rgba(255,255,255,.06);
-}
-#stickKnob{
-  width: 70px; height: 70px;
-  border: 2px solid rgba(255,255,255,.45);
-  background: rgba(255,255,255,.10);
-}
+#stickBase{ width:140px; height:140px; border:2px solid rgba(255,255,255,.25); background:rgba(255,255,255,.06); }
+#stickKnob{ width:70px; height:70px; border:2px solid rgba(255,255,255,.45); background:rgba(255,255,255,.10); }
 
-/* Tiny debug label */
-#hud {
-  position: fixed;
-  left: 10px;
-  top: 10px;
-  z-index: 30;
-  color: rgba(255,255,255,.75);
-  font: 12px/1.2 -apple-system, system-ui, Segoe UI, Roboto, Arial;
-  background: rgba(0,0,0,.35);
-  padding: 6px 8px;
-  border-radius: 10px;
-  user-select: none;
+#hud{
+  position:fixed; left:10px; top:10px; z-index:30;
+  color:rgba(255,255,255,.75);
+  font:12px/1.2 -apple-system, system-ui, Segoe UI, Roboto, Arial;
+  background:rgba(0,0,0,.35);
+  padding:6px 8px; border-radius:10px; user-select:none;
 }
 </style>
 </head>
 
 <body>
 <canvas id="renderCanvas"></canvas>
-
 <div id="leftZone" class="zone"></div>
 <div id="rightZone" class="zone"></div>
 <div id="stickBase"></div>
@@ -82,81 +43,33 @@ html, body {
 <script>
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
-
 const scene = new BABYLON.Scene(engine);
 scene.clearColor = new BABYLON.Color4(0.05,0.07,0.08,1);
 
-// LIGHT
 new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
-// ENABLE COLLISIONS (world + player)
-scene.collisionsEnabled = true;
-
-// CAMERA — keep your same camera + starting position
-const camera = new BABYLON.UniversalCamera(
-  "cam",
-  new BABYLON.Vector3(0, 1.6, -4),
-  scene
-);
+// Camera: kept locked behind player (you already like this)
+const camera = new BABYLON.UniversalCamera("cam", new BABYLON.Vector3(0, 1.6, -4), scene);
 camera.minZ = 0.05;
-
-// IMPORTANT: disable Babylon default controls so they don't fight our avatar controls
 camera.detachControl(canvas);
 camera.inputs.clear();
 
-// FLOOR (temp visual reference)
-const ground = BABYLON.MeshBuilder.CreateGround(
-  "ground",
-  { width: 20, height: 20 },
-  scene
-);
-ground.isVisible = false;
-ground.checkCollisions = true;
+scene.collisionsEnabled = true;
 
-// --------- PLAYER COLLIDER (invisible capsule) ----------
+// Invisible ground reference only
+const ground = BABYLON.MeshBuilder.CreateGround("ground", { width: 20, height: 20 }, scene);
+ground.isVisible = false;
+ground.checkCollisions = false;
+
+// Player collider capsule
 const player = BABYLON.MeshBuilder.CreateCapsule("PLAYER", { radius: 0.25, height: 1.7 }, scene);
 player.isVisible = false;
 player.checkCollisions = true;
-
-// How Babylon handles collisions for a mesh (treat it like an ellipsoid)
 player.ellipsoid = new BABYLON.Vector3(0.25, 0.85, 0.25);
 player.ellipsoidOffset = new BABYLON.Vector3(0, 0.85, 0);
+player.position = new BABYLON.Vector3(0, 0.35, 0); // lifted to avoid spawning inside geometry
 
-// Start at same spot as your avatar used to start
-player.position = new BABYLON.Vector3(0, 0, 0);
-
-// --------- LOAD ICU ROOM (UNCHANGED load, plus collider rules) ----------
-BABYLON.SceneLoader.ImportMesh(
-  "",
-  "./glb/",
-  "ICU.glb",
-  scene,
-  (meshes) => {
-    meshes.forEach(m => {
-      m.scaling.scaleInPlace(1);
-
-      // Only COLLIDER_* meshes collide (fast + scalable)
-      if (m.name && m.name.startsWith("COLLIDER_")) {
-        m.checkCollisions = true;
-        m.isPickable = false;
-        // If you accidentally exported them visible, hide them:
-        m.visibility = 0;
-      } else {
-        m.checkCollisions = false;
-      }
-
-      // Hotspots must be pickable
-      if (m.name && m.name.startsWith("HOTSPOT_")) {
-        m.isPickable = true;
-        // Optional: hide hotspot markers if they are visible
-        // (If they are empties, they won't render anyway)
-        // m.visibility = 0;
-      }
-    });
-  }
-);
-
-// --------- CONTROLS (left move, right look) ----------
+// -------- Controls (left move, right look) --------
 const leftZone  = document.getElementById("leftZone");
 const rightZone = document.getElementById("rightZone");
 const stickBase = document.getElementById("stickBase");
@@ -166,9 +79,9 @@ const hud = document.getElementById("hud");
 let movePointerId = null;
 let lookPointerId = null;
 
-let baseX = 0, baseY = 0;
-let moveX = 0, moveY = 0; // -1..1
-let lastLookX = 0, lastLookY = 0;
+let baseX=0, baseY=0;
+let moveX=0, moveY=0;
+let lastLookX=0, lastLookY=0;
 
 function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
 
@@ -180,16 +93,9 @@ function showStick(x,y){
   stickBase.style.opacity = "1";
   stickKnob.style.opacity = "1";
 }
-function hideStick(){
-  stickBase.style.opacity = "0";
-  stickKnob.style.opacity = "0";
-}
-function setKnob(x,y){
-  stickKnob.style.left = x + "px";
-  stickKnob.style.top  = y + "px";
-}
+function hideStick(){ stickBase.style.opacity="0"; stickKnob.style.opacity="0"; }
+function setKnob(x,y){ stickKnob.style.left=x+"px"; stickKnob.style.top=y+"px"; }
 
-// Left joystick => movement
 leftZone.addEventListener("pointerdown", (e) => {
   leftZone.setPointerCapture(e.pointerId);
   movePointerId = e.pointerId;
@@ -212,7 +118,7 @@ leftZone.addEventListener("pointermove", (e) => {
   setKnob(baseX + nx*rr, baseY + ny*rr);
 
   moveX = clamp(dx / maxR, -1, 1);
-  moveY = clamp(-dy / maxR, -1, 1); // up = forward
+  moveY = clamp(-dy / maxR, -1, 1);
   e.preventDefault();
 }, { passive:false });
 
@@ -225,26 +131,22 @@ function endMove(e){
 leftZone.addEventListener("pointerup", endMove, { passive:true });
 leftZone.addEventListener("pointercancel", endMove, { passive:true });
 
-// Right drag => look
-let yaw = 0;               // radians
-let pitch = 0;             // radians
+let yaw = 0;
+let pitch = 0;
 const PITCH_MIN = -0.85;
 const PITCH_MAX =  0.45;
 
 rightZone.addEventListener("pointerdown", (e) => {
   rightZone.setPointerCapture(e.pointerId);
   lookPointerId = e.pointerId;
-  lastLookX = e.clientX;
-  lastLookY = e.clientY;
+  lastLookX = e.clientX; lastLookY = e.clientY;
 }, { passive:false });
 
 rightZone.addEventListener("pointermove", (e) => {
   if (e.pointerId !== lookPointerId) return;
-
   const dx = e.clientX - lastLookX;
   const dy = e.clientY - lastLookY;
-  lastLookX = e.clientX;
-  lastLookY = e.clientY;
+  lastLookX = e.clientX; lastLookY = e.clientY;
 
   const sens = 0.0055;
   yaw   -= dx * sens;
@@ -261,51 +163,164 @@ function endLook(e){
 rightZone.addEventListener("pointerup", endLook, { passive:true });
 rightZone.addEventListener("pointercancel", endLook, { passive:true });
 
-// --------- HOTSPOTS (tap HOTSPOT_*) ----------
-function pulseMesh(m) {
-  if (!m || !(m instanceof BABYLON.AbstractMesh)) return;
-  const baseScale = m.scaling.clone();
-  const anim = new BABYLON.Animation(
-    "pulse",
-    "scaling",
-    60,
-    BABYLON.Animation.ANIMATIONTYPE_VECTOR3,
-    BABYLON.Animation.ANIMATIONLOOPMODE_CONSTANT
-  );
-  const k = [
-    { frame: 0, value: baseScale },
-    { frame: 8, value: baseScale.scale(1.12) },
-    { frame: 16, value: baseScale }
-  ];
-  anim.setKeys(k);
-  m.animations = m.animations || [];
-  m.animations.push(anim);
-  scene.beginAnimation(m, 0, 16, false, 1.0, () => {
-    m.scaling.copyFrom(baseScale);
-  });
-}
-
+// -------- Hotspots (optional; harmless if none) --------
 scene.onPointerObservable.add((pi) => {
   if (pi.type !== BABYLON.PointerEventTypes.POINTERDOWN) return;
-
   const pick = scene.pick(scene.pointerX, scene.pointerY, (mesh) => mesh && mesh.isPickable);
   if (!pick || !pick.hit || !pick.pickedMesh) return;
-
-  const m = pick.pickedMesh;
-  const name = m.name || "";
-
+  const name = pick.pickedMesh.name || "";
   if (name.startsWith("HOTSPOT_")) {
-    console.log("HOTSPOT:", name);
     hud.textContent = name;
-    pulseMesh(m);
-
-    // TODO: route actions here (example)
-    // if (name.startsWith("HOTSPOT_MONITOR")) { ... }
-    // if (name.startsWith("HOTSPOT_BED")) { ... }
+    console.log("HOTSPOT:", name);
   }
 });
 
-// --------- LOAD AVATAR (UNCHANGED load, but parent to player + movement via collisions) ----------
+// -------- Helpers: bounds + auto-colliders --------
+function computeWorldBounds(meshes){
+  let min = new BABYLON.Vector3( Infinity, Infinity, Infinity);
+  let max = new BABYLON.Vector3(-Infinity,-Infinity,-Infinity);
+  meshes.forEach(m => {
+    if (!m || !m.getBoundingInfo) return;
+    const b = m.getBoundingInfo().boundingBox;
+    min = BABYLON.Vector3.Minimize(min, b.minimumWorld);
+    max = BABYLON.Vector3.Maximize(max, b.maximumWorld);
+  });
+  return { min, max };
+}
+
+function makeRoomCollidersFromBounds(min, max){
+  const width  = max.x - min.x;
+  const height = max.y - min.y;
+  const depth  = max.z - min.z;
+  const cx = (min.x + max.x)/2;
+  const cy = (min.y + max.y)/2;
+  const cz = (min.z + max.z)/2;
+
+  const t = 0.15; // collider thickness
+
+  // floor
+  const floorCol = BABYLON.MeshBuilder.CreateBox("COL_FLOOR", { width, depth, height: t }, scene);
+  floorCol.position.set(cx, min.y - t/2, cz);
+  floorCol.checkCollisions = true;
+  floorCol.isVisible = false;
+
+  // walls
+  function wall(name, w, h, d, x, y, z){
+    const m = BABYLON.MeshBuilder.CreateBox(name, { width:w, height:h, depth:d }, scene);
+    m.position.set(x,y,z);
+    m.checkCollisions = true;
+    m.isVisible = false;
+    return m;
+  }
+
+  wall("COL_WALL_N", width, height, t, cx, cy, min.z - t/2);
+  wall("COL_WALL_S", width, height, t, cx, cy, max.z + t/2);
+  wall("COL_WALL_E", t, height, depth, max.x + t/2, cy, cz);
+  wall("COL_WALL_W", t, height, depth, min.x - t/2, cy, cz);
+}
+
+// -------- LOAD ICU ROOM (then expand “space around bed”) --------
+let bedCenter = new BABYLON.Vector3(0,0,0);
+let headwallSide = "minZ"; // which wall stays fixed
+
+BABYLON.SceneLoader.ImportMesh(
+  "",
+  "./glb/",
+  "ICU.glb",
+  scene,
+  (meshes) => {
+
+    // Pickables for hotspots if you ever add them
+    meshes.forEach(m => {
+      if (m.name && m.name.startsWith("HOTSPOT_")) m.isPickable = true;
+      else m.isPickable = false;
+      m.checkCollisions = false; // NEVER collide on detailed meshes (mobile)
+    });
+
+    // Try to find "bed" by name (best effort). If none, we anchor to room center.
+    const bedMeshes = meshes.filter(m => (m.name || "").toLowerCase().includes("bed"));
+    const roomBounds0 = computeWorldBounds(meshes);
+
+    if (bedMeshes.length > 0) {
+      const bb = computeWorldBounds(bedMeshes);
+      bedCenter = bb.min.add(bb.max).scale(0.5);
+    } else {
+      bedCenter = roomBounds0.min.add(roomBounds0.max).scale(0.5);
+    }
+
+    // Decide headwall side automatically: whichever Z wall is closer to the bed
+    const distToMinZ = Math.abs(bedCenter.z - roomBounds0.min.z);
+    const distToMaxZ = Math.abs(roomBounds0.max.z - bedCenter.z);
+    headwallSide = (distToMinZ <= distToMaxZ) ? "minZ" : "maxZ";
+
+    // EXPANSION: +5m around the bed, except headwall (keep that side fixed)
+    const EXPAND = 5.0;
+    const headwallKeepBand = 0.8; // don’t push things that are very near the headwall
+
+    // Push “everything else” outward away from bed (best effort)
+    meshes.forEach(m => {
+      // Never move bed meshes (anchor)
+      const n = (m.name || "").toLowerCase();
+      if (n.includes("bed")) return;
+
+      // Skip tiny helper nodes without geometry
+      if (!(m instanceof BABYLON.AbstractMesh)) return;
+
+      const p = m.getAbsolutePosition();
+
+      // X: push left/right away from bed
+      const dx = p.x - bedCenter.x;
+      if (Math.abs(dx) > 0.15) m.position.x += (dx > 0 ? EXPAND : -EXPAND);
+
+      // Z: push away from headwall only (do NOT push into headwall side)
+      if (headwallSide === "minZ") {
+        const nearHeadwall = (p.z - roomBounds0.min.z) < headwallKeepBand;
+        if (!nearHeadwall && p.z > bedCenter.z + 0.15) m.position.z += EXPAND; // foot/away side
+      } else {
+        const nearHeadwall = (roomBounds0.max.z - p.z) < headwallKeepBand;
+        if (!nearHeadwall && p.z < bedCenter.z - 0.15) m.position.z -= EXPAND;
+      }
+    });
+
+    // Recompute bounds AFTER pushing stuff
+    scene.executeWhenReady(() => {
+      const roomBounds1 = computeWorldBounds(meshes);
+
+      // Now expand colliders: +5m left/right, and +5m on the non-headwall Z side only
+      let min = roomBounds1.min.clone();
+      let max = roomBounds1.max.clone();
+
+      // X always expands both sides
+      min.x -= EXPAND;
+      max.x += EXPAND;
+
+      // Z expands only away from headwall
+      if (headwallSide === "minZ") {
+        max.z += EXPAND;
+      } else {
+        min.z -= EXPAND;
+      }
+
+      // Slightly grow in Y so tall stuff doesn’t clip the wall tops
+      min.y -= 0.1;
+      max.y += 0.1;
+
+      makeRoomCollidersFromBounds(min, max);
+
+      // Put player near bed (foot side), not inside the bed
+      player.position.x = bedCenter.x;
+      player.position.z = (headwallSide === "minZ") ? (bedCenter.z + 1.2) : (bedCenter.z - 1.2);
+      player.position.y = min.y + 0.35;
+
+      hud.textContent = "BLUE (EXPANDED)";
+      console.log("Expanded around bed. Headwall:", headwallSide);
+    });
+  },
+  null,
+  (scene, msg) => console.warn("ROOM load error:", msg)
+);
+
+// -------- LOAD AVATAR (unchanged scale; parent to player) --------
 let avatarRoot = null;
 
 BABYLON.SceneLoader.ImportMesh(
@@ -315,22 +330,12 @@ BABYLON.SceneLoader.ImportMesh(
   scene,
   (meshes) => {
     avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
+    meshes.forEach(m => { m.parent = avatarRoot; m.isPickable = false; });
 
-    meshes.forEach(m => {
-      m.parent = avatarRoot;
-      m.isPickable = false;
-    });
-
-    // NORMALIZE SIZE (unchanged)
     avatarRoot.scaling.scaleInPlace(0.01);
-
-    // PLACE ON FLOOR (unchanged)
-    avatarRoot.position = new BABYLON.Vector3(0, 0, 0);
-
-    // Parent avatar to player collider so collisions drive the world position
+    avatarRoot.position = BABYLON.Vector3.Zero();
     avatarRoot.parent = player;
 
-    // LOCKED 3RD PERSON CAMERA + MOVE WITH COLLISIONS
     const camHeight = 1.6;
     const camDist   = 3.0;
     const moveSpeed = 2.2;
@@ -338,27 +343,22 @@ BABYLON.SceneLoader.ImportMesh(
     scene.onBeforeRenderObservable.add(() => {
       const dt = engine.getDeltaTime() / 1000;
 
-      // Movement direction based on yaw
       if (moveX !== 0 || moveY !== 0) {
         const forward = new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
         const right   = new BABYLON.Vector3(Math.sin(yaw + Math.PI/2), 0, Math.cos(yaw + Math.PI/2));
 
         let v = right.scale(moveX).addInPlace(forward.scale(moveY));
-
         const len = v.length();
+
         if (len > 0.00001) {
           v = v.scale((moveSpeed * dt) / len);
-
-          // THIS is the collision move
           player.moveWithCollisions(v);
 
-          // Rotate avatar to face movement direction (nice, keeps “behind” feeling)
           const faceYaw = Math.atan2(v.x, v.z);
           avatarRoot.rotation.y = faceYaw;
         }
       }
 
-      // Camera locked behind avatar/player
       const behind = new BABYLON.Vector3(Math.sin(yaw), 0, Math.cos(yaw)).scale(camDist);
       const pitchLift = Math.sin(pitch) * 1.2;
 
@@ -368,14 +368,13 @@ BABYLON.SceneLoader.ImportMesh(
 
       camera.setTarget(player.position.add(new BABYLON.Vector3(0, camHeight, 0)));
     });
-  }
+  },
+  null,
+  (scene, msg) => console.warn("AVATAR load error:", msg)
 );
 
-engine.runRenderLoop(() => {
-  scene.render();
-});
-
+engine.runRenderLoop(() => scene.render());
 window.addEventListener("resize", () => engine.resize());
 </script>
 </body>
-</html> 
+</html>
