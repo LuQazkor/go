@@ -2,145 +2,156 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>ICU Third Person</title>
-<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no"/>
+<title>ICU Third-Person Debug</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
 
 <style>
 html, body {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  overflow: hidden;
-  touch-action: none;
-  background: #000;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    background: #000;
 }
 #renderCanvas {
-  width: 100%;
-  height: 100%;
-  display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+}
+#hud {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    background: rgba(0,0,0,0.75);
+    color: #00ff99;
+    font-family: monospace;
+    font-size: 12px;
+    padding: 8px;
+    border-radius: 6px;
+    z-index: 10;
+    min-width: 220px;
 }
 </style>
-
-<script src="https://cdn.babylonjs.com/babylon.js"></script>
-<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 </head>
 
 <body>
 <canvas id="renderCanvas"></canvas>
+<div id="hud">BOOTING…</div>
+
+<script src="https://cdn.babylonjs.com/babylon.js"></script>
+<script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 
 <script>
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
+const hud = document.getElementById("hud");
 
-const createScene = async () => {
-  const scene = new BABYLON.Scene(engine);
-  scene.clearColor = new BABYLON.Color3(0,0,0);
+const ICU_FILE = "ICU.glb";
+const AVATAR_FILE = "avatar.glb";
 
-  scene.collisionsEnabled = true;
-  scene.gravity = new BABYLON.Vector3(0, -0.3, 0);
+const scene = new BABYLON.Scene(engine);
+scene.clearColor = new BABYLON.Color3(0.05, 0.05, 0.05);
 
-  // Light
-  const light = new BABYLON.HemisphericLight(
+// LIGHT
+const light = new BABYLON.HemisphericLight(
     "light",
     new BABYLON.Vector3(0, 1, 0),
     scene
-  );
-  light.intensity = 0.9;
+);
+light.intensity = 1.1;
 
-  // Load ICU room
-  const roomResult = await BABYLON.SceneLoader.ImportMeshAsync(
-    "",
-    "./glb/",
-    "ICU.glb",
-    scene
-  );
-
-  roomResult.meshes.forEach(m => {
-    m.checkCollisions = true;
-  });
-
-  // Load avatar
-  const avatarResult = await BABYLON.SceneLoader.ImportMeshAsync(
-    "",
-    "./glb/",
-    "avatar.glb",   // 👈 CHANGE NAME IF NEEDED
-    scene
-  );
-
-  const avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
-  avatarResult.meshes.forEach(m => {
-    if (m !== avatarResult.meshes[0]) {
-      m.parent = avatarRoot;
-    }
-  });
-
-  // Normalize avatar scale
-  const bounds = avatarRoot.getHierarchyBoundingVectors();
-  const height = bounds.max.y - bounds.min.y;
-  const scale = 1.7 / height; // human height
-  avatarRoot.scaling.setAll(scale);
-
-  // Start position
-  avatarRoot.position = new BABYLON.Vector3(0, 0, 0);
-  avatarRoot.checkCollisions = true;
-
-  // Invisible collision body (NO white capsule)
-  const collider = BABYLON.MeshBuilder.CreateCapsule("collider", {
-    height: 1.7,
-    radius: 0.35
-  }, scene);
-  collider.isVisible = false;
-  collider.position.y = 0.85;
-  collider.checkCollisions = true;
-  collider.applyGravity = true;
-
-  avatarRoot.parent = collider;
-
-  // THIRD PERSON CAMERA (Babylon native)
-  const camera = new BABYLON.ArcRotateCamera(
+// CAMERA (SAFE DEFAULTS)
+const camera = new BABYLON.ArcRotateCamera(
     "camera",
     Math.PI,
-    Math.PI / 3,
+    Math.PI / 2.6,
     3.5,
-    collider.position,
+    new BABYLON.Vector3(0, 1.6, 0),
     scene
-  );
+);
 
-  camera.attachControl(canvas, true);
-  camera.lowerRadiusLimit = 2;
-  camera.upperRadiusLimit = 6;
-  camera.wheelPrecision = 100;
-  camera.panningSensibility = 0;
-  camera.angularSensibilityX = 4000;
-  camera.angularSensibilityY = 4000;
+camera.minZ = 0.05;
+camera.wheelPrecision = 80;
+camera.pinchPrecision = 200;
+camera.upperBetaLimit = Math.PI / 2.05;
+camera.lowerRadiusLimit = 1.8;
+camera.upperRadiusLimit = 6;
 
-  // Mobile joystick movement (Babylon)
-  camera.inputs.removeByType("ArcRotateCameraKeyboardMoveInput");
-  camera.inputs.addVirtualJoystick();
+// THIS LINE PREVENTS BLACK SCREENS
+scene.activeCamera = camera;
+camera.attachControl(canvas, true);
 
-  scene.onBeforeRenderObservable.add(() => {
-    const fwd = camera.getDirection(BABYLON.Axis.Z);
-    fwd.y = 0;
-    fwd.normalize();
-
-    const speed = 0.06;
-    if (camera.inputs.attached.virtualJoystick?.pressed) {
-      collider.moveWithCollisions(fwd.scale(speed));
-      avatarRoot.rotation.y = Math.atan2(fwd.x, fwd.z);
-    }
-  });
-
-  return scene;
-};
-
-createScene().then(scene => {
-  engine.runRenderLoop(() => {
-    scene.render();
-  });
+// DEBUG FAILSAFE
+scene.onReadyObservable.add(() => {
+    hud.innerText = "Scene ready";
 });
 
+// LOAD ICU ROOM
+BABYLON.SceneLoader.Append(
+    "/glb/",
+    ICU_FILE,
+    scene,
+    () => {
+        console.log("ICU loaded");
+    },
+    null,
+    (scene, msg) => {
+        hud.innerText = "ICU LOAD ERROR:\n" + msg;
+    }
+);
+
+// LOAD AVATAR
+let avatarRoot = null;
+
+BABYLON.SceneLoader.ImportMesh(
+    "",
+    "/glb/",
+    AVATAR_FILE,
+    scene,
+    (meshes) => {
+        avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
+
+        meshes.forEach(m => {
+            if (m.parent === null) {
+                m.parent = avatarRoot;
+            }
+        });
+
+        // NORMALIZE AVATAR SCALE
+        avatarRoot.scaling.setAll(1);
+
+        // POSITION AVATAR (FEET ON FLOOR)
+        avatarRoot.position.set(0, 0, 0);
+
+        // LOCK CAMERA TO AVATAR
+        camera.lockedTarget = avatarRoot;
+        camera.radius = 3.2;
+        camera.target.y = 1.6;
+
+        hud.innerText = "Avatar loaded OK";
+    },
+    null,
+    (scene, msg) => {
+        hud.innerText = "AVATAR LOAD ERROR:\n" + msg;
+    }
+);
+
+// DEBUG HUD UPDATE
+engine.runRenderLoop(() => {
+    if (avatarRoot) {
+        hud.innerText =
+            "Camera r: " + camera.radius.toFixed(2) +
+            "\nAlpha: " + camera.alpha.toFixed(2) +
+            "\nBeta: " + camera.beta.toFixed(2) +
+            "\nAvatar x: " + avatarRoot.position.x.toFixed(2) +
+            " z: " + avatarRoot.position.z.toFixed(2);
+    }
+    scene.render();
+});
+
+// RESIZE
 window.addEventListener("resize", () => {
-  engine.resize();
+    engine.resize();
 });
 </script>
 </body>
