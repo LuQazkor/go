@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>ICU Simulator v13 – Stable</title>
+<title>ICU Simulator v14 – Eye-Level Camera</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
 html, body {
@@ -21,13 +21,11 @@ html, body {
   position: fixed;
   top: 10px;
   left: 10px;
-  z-index: 9999;
   color: #0f0;
   font: 12px monospace;
   background: rgba(0,0,0,.7);
-  padding: 8px;
-  max-width: 90vw;
-  white-space: pre-wrap;
+  padding: 6px;
+  z-index: 10;
 }
 </style>
 </head>
@@ -40,71 +38,75 @@ html, body {
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 
 <script>
-const debug = t => document.getElementById("debug").textContent = t;
+const log = t => document.getElementById("debug").textContent = t;
 
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
 
 async function createScene() {
   const scene = new BABYLON.Scene(engine);
-  scene.clearColor = new BABYLON.Color4(0.05,0.1,0.1,1);
+  scene.clearColor = new BABYLON.Color4(0.05, 0.1, 0.1, 1);
 
   new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
-  /* ===== CAMERA (OPEN-SOURCE, MOBILE SAFE) ===== */
+  /* ========= CAMERA ========= */
   const camera = new BABYLON.UniversalCamera(
     "cam",
-    new BABYLON.Vector3(0, 1.6, -3),
+    new BABYLON.Vector3(0, 1.6, -2),
     scene
   );
   camera.attachControl(canvas, true);
   camera.speed = 0.12;
-  camera.angularSensibility = 3000;
+  camera.angularSensibility = 2500;
 
-  /* ===== ICU ROOM ===== */
-  debug("Loading ICU.glb…");
+  /* ========= ICU ROOM ========= */
+  log("Loading ICU.glb…");
   const room = await BABYLON.SceneLoader.ImportMeshAsync(
     "",
     "./glb/",
     "ICU.glb",
     scene
   );
+  room.meshes.forEach(m => m.checkCollisions = true);
 
-  room.meshes.forEach(m => {
-    m.checkCollisions = true;
-  });
+  /* ========= AVATAR ROOT ========= */
+  const avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
+  avatarRoot.position.set(0, 0, 0);
 
-  /* ===== AVATAR ===== */
-  debug("Loading avatar.glb…");
+  /* ========= AVATAR ========= */
+  log("Loading avatar.glb…");
   const avatarRes = await BABYLON.SceneLoader.ImportMeshAsync(
     "",
     "./glb/",
     "avatar.glb",
     scene
   );
-
-  const avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
   avatarRes.meshes.forEach(m => m.parent = avatarRoot);
 
-  // Normalize avatar to ~1.7m
+  // Normalize avatar height to ~1.7m
   const bounds = avatarRoot.getHierarchyBoundingVectors();
   const height = bounds.max.y - bounds.min.y;
   const scale = 1.7 / height;
   avatarRoot.scaling.setAll(scale);
-  avatarRoot.position.set(0, 0, 0);
 
-  camera.parent = avatarRoot;
+  // Feet stay on floor
+  avatarRoot.position.y = -bounds.min.y * scale;
 
-  debug("Scene loaded OK ✅");
+  /* ========= EYE TARGET (THIS IS THE FIX) ========= */
+  const eyeTarget = new BABYLON.TransformNode("eyeTarget", scene);
+  eyeTarget.parent = avatarRoot;
+  eyeTarget.position.set(0, 1.6, 0); // human eye height
+
+  camera.lockedTarget = eyeTarget;
+
+  log("Loaded OK – eye-level view ✅");
   return scene;
 }
 
 createScene()
-  .then(scene => {
-    engine.runRenderLoop(() => scene.render());
-  })
+  .then(scene => engine.runRenderLoop(() => scene.render()))
   .catch(err => {
-    debug("❌ ERROR:\n" + err.message);
+    log("ERROR:\n" + err.message);
     console.error(err);
   });
 
