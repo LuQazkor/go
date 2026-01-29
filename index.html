@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>ICU Third-Person Debug</title>
+<title>ICU Third Person – Stable Debug</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
 
 <style>
@@ -22,21 +22,22 @@ html, body {
     position: absolute;
     left: 10px;
     bottom: 10px;
-    background: rgba(0,0,0,0.75);
-    color: #00ff99;
+    background: rgba(0,0,0,0.8);
+    color: #00ff88;
     font-family: monospace;
     font-size: 12px;
     padding: 8px;
     border-radius: 6px;
     z-index: 10;
-    min-width: 220px;
+    min-width: 260px;
+    white-space: pre;
 }
 </style>
 </head>
 
 <body>
 <canvas id="renderCanvas"></canvas>
-<div id="hud">BOOTING…</div>
+<div id="hud">Booting…</div>
 
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
@@ -46,57 +47,69 @@ const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
 const hud = document.getElementById("hud");
 
-const ICU_FILE = "ICU.glb";
-const AVATAR_FILE = "avatar.glb";
-
 const scene = new BABYLON.Scene(engine);
 scene.clearColor = new BABYLON.Color3(0.05, 0.05, 0.05);
 
 // LIGHT
-const light = new BABYLON.HemisphericLight(
-    "light",
-    new BABYLON.Vector3(0, 1, 0),
-    scene
-);
-light.intensity = 1.1;
+const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
+light.intensity = 1.2;
 
-// CAMERA (SAFE DEFAULTS)
+// CAMERA (THIRD PERSON, MOBILE SAFE)
 const camera = new BABYLON.ArcRotateCamera(
     "camera",
     Math.PI,
-    Math.PI / 2.6,
-    3.5,
-    new BABYLON.Vector3(0, 1.6, 0),
+    Math.PI / 2.3,
+    5,
+    BABYLON.Vector3.Zero(),
     scene
 );
-
 camera.minZ = 0.05;
+camera.lowerRadiusLimit = 1.5;
+camera.upperRadiusLimit = 20;
 camera.wheelPrecision = 80;
 camera.pinchPrecision = 200;
 camera.upperBetaLimit = Math.PI / 2.05;
-camera.lowerRadiusLimit = 1.8;
-camera.upperRadiusLimit = 6;
-
-// THIS LINE PREVENTS BLACK SCREENS
-scene.activeCamera = camera;
 camera.attachControl(canvas, true);
+scene.activeCamera = camera;
 
-// DEBUG FAILSAFE
-scene.onReadyObservable.add(() => {
-    hud.innerText = "Scene ready";
-});
+// DEBUG AXES (visual sanity check)
+BABYLON.AxesViewer.CreateAxesViewer(scene, 1);
 
-// LOAD ICU ROOM
-BABYLON.SceneLoader.Append(
+// LOAD ICU
+BABYLON.SceneLoader.ImportMesh(
+    "",
     "/glb/",
-    ICU_FILE,
+    "ICU.glb",
     scene,
-    () => {
-        console.log("ICU loaded");
+    (meshes) => {
+        // Compute bounds
+        let min = new BABYLON.Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
+        let max = new BABYLON.Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
+
+        meshes.forEach(m => {
+            if (!m.getBoundingInfo) return;
+            const b = m.getBoundingInfo().boundingBox;
+            min = BABYLON.Vector3.Minimize(min, b.minimumWorld);
+            max = BABYLON.Vector3.Maximize(max, b.maximumWorld);
+        });
+
+        const center = min.add(max).scale(0.5);
+        const size = max.subtract(min);
+        const radius = size.length() * 0.6;
+
+        camera.target.copyFrom(center);
+        camera.radius = radius;
+        camera.beta = Math.PI / 2.3;
+
+        hud.textContent =
+            "ICU LOADED\n" +
+            "Center: " + center.toString() + "\n" +
+            "Size: " + size.toString() + "\n" +
+            "Radius: " + radius.toFixed(2);
     },
     null,
     (scene, msg) => {
-        hud.innerText = "ICU LOAD ERROR:\n" + msg;
+        hud.textContent = "ICU LOAD ERROR:\n" + msg;
     }
 );
 
@@ -106,53 +119,36 @@ let avatarRoot = null;
 BABYLON.SceneLoader.ImportMesh(
     "",
     "/glb/",
-    AVATAR_FILE,
+    "avatar.glb",
     scene,
     (meshes) => {
         avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
-
         meshes.forEach(m => {
-            if (m.parent === null) {
-                m.parent = avatarRoot;
-            }
+            if (!m.parent) m.parent = avatarRoot;
         });
 
-        // NORMALIZE AVATAR SCALE
         avatarRoot.scaling.setAll(1);
 
-        // POSITION AVATAR (FEET ON FLOOR)
-        avatarRoot.position.set(0, 0, 0);
+        // Drop avatar to floor after ICU loads
+        avatarRoot.position.y = 0;
 
-        // LOCK CAMERA TO AVATAR
         camera.lockedTarget = avatarRoot;
-        camera.radius = 3.2;
-        camera.target.y = 1.6;
 
-        hud.innerText = "Avatar loaded OK";
+        hud.textContent += "\nAvatar loaded";
     },
     null,
     (scene, msg) => {
-        hud.innerText = "AVATAR LOAD ERROR:\n" + msg;
+        hud.textContent += "\nAVATAR ERROR:\n" + msg;
     }
 );
 
-// DEBUG HUD UPDATE
+// RENDER LOOP
 engine.runRenderLoop(() => {
-    if (avatarRoot) {
-        hud.innerText =
-            "Camera r: " + camera.radius.toFixed(2) +
-            "\nAlpha: " + camera.alpha.toFixed(2) +
-            "\nBeta: " + camera.beta.toFixed(2) +
-            "\nAvatar x: " + avatarRoot.position.x.toFixed(2) +
-            " z: " + avatarRoot.position.z.toFixed(2);
-    }
     scene.render();
 });
 
 // RESIZE
-window.addEventListener("resize", () => {
-    engine.resize();
-});
+window.addEventListener("resize", () => engine.resize());
 </script>
 </body>
 </html>
