@@ -1,9 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="utf-8" />
-<title>ICU Third-Person Mobile</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<meta charset="utf-8">
+<title>ICU Mobile Controls</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
 html, body {
   width: 100%;
@@ -17,96 +17,97 @@ html, body {
   height: 100%;
   touch-action: none;
 }
+#ui {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  color: #0f0;
+  font: 13px monospace;
+  z-index: 10;
+}
 </style>
 </head>
 
 <body>
+<div id="ui">🕹 Move left • Drag to look</div>
 <canvas id="renderCanvas"></canvas>
 
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+<script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
 
 <script>
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
-
 const scene = new BABYLON.Scene(engine);
-scene.clearColor = new BABYLON.Color4(0.05,0.07,0.08,1);
+scene.clearColor = new BABYLON.Color4(0.04,0.06,0.07,1);
 
 // LIGHT
 new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
-// CAMERA — Babylon official controller
-const camera = new BABYLON.UniversalCamera(
-  "cam",
-  new BABYLON.Vector3(0, 1.6, -4),
+// CAMERA (closer + slightly higher like you asked)
+const camera = new BABYLON.FollowCamera(
+  "followCam",
+  new BABYLON.Vector3(0, 2.2, -4.5),
   scene
 );
+camera.radius = 4.5;
+camera.heightOffset = 1.8;
+camera.rotationOffset = 180;
+camera.cameraAcceleration = 0.08;
+camera.maxCameraSpeed = 12;
 camera.attachControl(canvas, true);
-camera.speed = 0.15;
-camera.angularSensibility = 4000;
-camera.minZ = 0.05;
 
-// Mobile-friendly inputs
-camera.inputs.clear();
-camera.inputs.addTouch();
-camera.inputs.addVirtualJoystick();
+// ROOM
+BABYLON.SceneLoader.ImportMesh("", "./glb/", "ICU.glb", scene);
 
-// FLOOR (temp visual reference)
-const ground = BABYLON.MeshBuilder.CreateGround(
-  "ground",
-  { width: 20, height: 20 },
-  scene
-);
-ground.isVisible = false;
+// PLAYER ROOT
+const player = new BABYLON.TransformNode("player", scene);
 
-// LOAD ICU ROOM
-BABYLON.SceneLoader.ImportMesh(
-  "",
-  "./glb/",
-  "ICU.glb",
-  scene,
-  (meshes) => {
-    meshes.forEach(m => {
-      m.scaling.scaleInPlace(1);
-    });
-  }
-);
+// AVATAR
+BABYLON.SceneLoader.ImportMesh("", "./glb/", "avatar.glb", scene, (meshes) => {
+  meshes.forEach(m => {
+    m.parent = player;
+    m.isPickable = false;
+  });
 
-// LOAD AVATAR
-BABYLON.SceneLoader.ImportMesh(
-  "",
-  "./glb/",
-  "avatar.glb",
-  scene,
-  (meshes) => {
-    const avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
+  // Normalize avatar
+  player.scaling.setAll(0.01);
 
-    meshes.forEach(m => {
-      m.parent = avatarRoot;
-      m.isPickable = false;
-    });
+  const bounds = meshes[0].getHierarchyBoundingVectors();
+  const height = bounds.max.y - bounds.min.y;
+  player.position.y = height / 2;
 
-    // NORMALIZE SIZE
-    avatarRoot.scaling.scaleInPlace(0.01);
-
-    // PLACE ON FLOOR
-    avatarRoot.position = new BABYLON.Vector3(0, 0, 0);
-
-    // CAMERA FOLLOW (3rd person)
-    scene.onBeforeRenderObservable.add(() => {
-      const forward = camera.getDirection(BABYLON.Axis.Z);
-      camera.position = avatarRoot.position
-        .add(new BABYLON.Vector3(0, 1.6, 0))
-        .subtract(forward.scale(3));
-    });
-  }
-);
-
-engine.runRenderLoop(() => {
-  scene.render();
+  camera.lockedTarget = player;
 });
 
+// ===== MOBILE JOYSTICK (OFFICIAL BABYLON) =====
+const leftJoystick = new BABYLON.VirtualJoystick(true);
+leftJoystick.setJoystickSensibility(0.15);
+
+scene.onBeforeRenderObservable.add(() => {
+  const moveX = leftJoystick.deltaPosition.x;
+  const moveZ = leftJoystick.deltaPosition.y;
+
+  if (Math.abs(moveX) > 0 || Math.abs(moveZ) > 0) {
+    const speed = 0.04;
+    const forward = new BABYLON.Vector3(
+      Math.sin(player.rotation.y),
+      0,
+      Math.cos(player.rotation.y)
+    );
+    const right = new BABYLON.Vector3(
+      Math.sin(player.rotation.y + Math.PI / 2),
+      0,
+      Math.cos(player.rotation.y + Math.PI / 2)
+    );
+
+    player.position.addInPlace(forward.scale(moveZ * speed));
+    player.position.addInPlace(right.scale(moveX * speed));
+  }
+});
+
+engine.runRenderLoop(() => scene.render());
 window.addEventListener("resize", () => engine.resize());
 </script>
 </body>
