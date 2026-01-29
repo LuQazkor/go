@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>ICU Simulator v14 – Eye-Level Camera</title>
+<title>ICU Simulator v15 – FP / TP Toggle</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <style>
 html, body {
@@ -17,98 +17,118 @@ html, body {
   height: 100%;
   touch-action: none;
 }
-#debug {
+#ui {
   position: fixed;
   top: 10px;
   left: 10px;
-  color: #0f0;
-  font: 12px monospace;
-  background: rgba(0,0,0,.7);
-  padding: 6px;
   z-index: 10;
+  font: 13px system-ui;
+}
+#ui button {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.25);
+  background: rgba(0,0,0,.7);
+  color: #fff;
 }
 </style>
 </head>
 
 <body>
-<div id="debug">Booting…</div>
+<div id="ui">
+  <button id="toggleCam">Third-person</button>
+</div>
 <canvas id="renderCanvas"></canvas>
 
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
 
 <script>
-const log = t => document.getElementById("debug").textContent = t;
-
 const canvas = document.getElementById("renderCanvas");
 const engine = new BABYLON.Engine(canvas, true);
 
 async function createScene() {
   const scene = new BABYLON.Scene(engine);
-  scene.clearColor = new BABYLON.Color4(0.05, 0.1, 0.1, 1);
+  scene.clearColor = new BABYLON.Color4(0.05,0.1,0.1,1);
 
   new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
 
-  /* ========= CAMERA ========= */
-  const camera = new BABYLON.UniversalCamera(
-    "cam",
-    new BABYLON.Vector3(0, 1.6, -2),
-    scene
-  );
-  camera.attachControl(canvas, true);
-  camera.speed = 0.12;
-  camera.angularSensibility = 2500;
-
   /* ========= ICU ROOM ========= */
-  log("Loading ICU.glb…");
   const room = await BABYLON.SceneLoader.ImportMeshAsync(
-    "",
-    "./glb/",
-    "ICU.glb",
-    scene
+    "", "./glb/", "ICU.glb", scene
   );
   room.meshes.forEach(m => m.checkCollisions = true);
 
   /* ========= AVATAR ROOT ========= */
   const avatarRoot = new BABYLON.TransformNode("avatarRoot", scene);
-  avatarRoot.position.set(0, 0, 0);
 
-  /* ========= AVATAR ========= */
-  log("Loading avatar.glb…");
   const avatarRes = await BABYLON.SceneLoader.ImportMeshAsync(
-    "",
-    "./glb/",
-    "avatar.glb",
-    scene
+    "", "./glb/", "avatar.glb", scene
   );
   avatarRes.meshes.forEach(m => m.parent = avatarRoot);
 
-  // Normalize avatar height to ~1.7m
+  // Normalize avatar to ~1.7m
   const bounds = avatarRoot.getHierarchyBoundingVectors();
   const height = bounds.max.y - bounds.min.y;
   const scale = 1.7 / height;
   avatarRoot.scaling.setAll(scale);
-
-  // Feet stay on floor
   avatarRoot.position.y = -bounds.min.y * scale;
 
-  /* ========= EYE TARGET (THIS IS THE FIX) ========= */
+  /* ========= EYE TARGET ========= */
   const eyeTarget = new BABYLON.TransformNode("eyeTarget", scene);
   eyeTarget.parent = avatarRoot;
-  eyeTarget.position.set(0, 1.6, 0); // human eye height
+  eyeTarget.position.set(0, 1.6, 0);
 
-  camera.lockedTarget = eyeTarget;
+  /* ========= FIRST PERSON CAMERA ========= */
+  const fpCam = new BABYLON.UniversalCamera(
+    "fpCam",
+    new BABYLON.Vector3(0,1.6,0),
+    scene
+  );
+  fpCam.lockedTarget = eyeTarget;
+  fpCam.speed = 0.12;
+  fpCam.angularSensibility = 2500;
 
-  log("Loaded OK – eye-level view ✅");
+  /* ========= THIRD PERSON CAMERA ========= */
+  const tpCam = new BABYLON.FollowCamera(
+    "tpCam",
+    new BABYLON.Vector3(0,2,-6),
+    scene
+  );
+  tpCam.lockedTarget = avatarRoot;
+  tpCam.radius = 6;
+  tpCam.heightOffset = 2;
+  tpCam.rotationOffset = 180;
+  tpCam.cameraAcceleration = 0.05;
+  tpCam.maxCameraSpeed = 10;
+
+  /* ========= CAMERA TOGGLE ========= */
+  let thirdPerson = false;
+  scene.activeCamera = fpCam;
+  fpCam.attachControl(canvas, true);
+
+  document.getElementById("toggleCam").onclick = () => {
+    thirdPerson = !thirdPerson;
+
+    scene.activeCamera.detachControl(canvas);
+
+    if (thirdPerson) {
+      scene.activeCamera = tpCam;
+      tpCam.attachControl(canvas, true);
+      document.getElementById("toggleCam").textContent = "First-person";
+    } else {
+      scene.activeCamera = fpCam;
+      fpCam.attachControl(canvas, true);
+      document.getElementById("toggleCam").textContent = "Third-person";
+    }
+  };
+
   return scene;
 }
 
-createScene()
-  .then(scene => engine.runRenderLoop(() => scene.render()))
-  .catch(err => {
-    log("ERROR:\n" + err.message);
-    console.error(err);
-  });
+createScene().then(scene => {
+  engine.runRenderLoop(() => scene.render());
+});
 
 window.addEventListener("resize", () => engine.resize());
 </script>
