@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>ICU Mobile Controls</title>
+<title>ICU Mobile Third Person</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
 <style>
 html, body {
   width: 100%;
@@ -17,7 +18,7 @@ html, body {
   height: 100%;
   touch-action: none;
 }
-#ui {
+#hud {
   position: fixed;
   top: 10px;
   left: 10px;
@@ -29,68 +30,136 @@ html, body {
 </head>
 
 <body>
-<div id="ui">🕹 Move left • Drag to look</div>
+<div id="hud">🕹 Move (left) • Drag = look</div>
 <canvas id="renderCanvas"></canvas>
 
+<!-- Babylon -->
 <script src="https://cdn.babylonjs.com/babylon.js"></script>
 <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
-<script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
 
 <script>
+/* =====================================================
+   ENGINE / SCENE
+===================================================== */
 const canvas = document.getElementById("renderCanvas");
-const engine = new BABYLON.Engine(canvas, true);
+const engine = new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true });
 const scene = new BABYLON.Scene(engine);
-scene.clearColor = new BABYLON.Color4(0.04,0.06,0.07,1);
+scene.clearColor = new BABYLON.Color4(0.05, 0.06, 0.07, 1);
 
-// LIGHT
-new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0,1,0), scene);
-
-// CAMERA (closer + slightly higher like you asked)
-const camera = new BABYLON.FollowCamera(
-  "followCam",
-  new BABYLON.Vector3(0, 2.2, -4.5),
+/* =====================================================
+   LIGHT
+===================================================== */
+new BABYLON.HemisphericLight(
+  "light",
+  new BABYLON.Vector3(0, 1, 0),
   scene
 );
-camera.radius = 4.5;
-camera.heightOffset = 1.8;
+
+/* =====================================================
+   PLAYER ROOT
+===================================================== */
+const player = new BABYLON.TransformNode("player", scene);
+player.position.set(0, 0, 0);
+
+/* =====================================================
+   CAMERA (FOLLOW, MOBILE SAFE)
+===================================================== */
+const camera = new BABYLON.FollowCamera(
+  "followCam",
+  new BABYLON.Vector3(0, 2.2, -4),
+  scene
+);
+camera.radius = 4;
+camera.heightOffset = 1.7;
 camera.rotationOffset = 180;
 camera.cameraAcceleration = 0.08;
 camera.maxCameraSpeed = 12;
-camera.attachControl(canvas, true);
+camera.lockedTarget = player;
+// ⚠️ DO NOT attachControl on mobile
 
-// ROOM
-BABYLON.SceneLoader.ImportMesh("", "./glb/", "ICU.glb", scene);
+/* =====================================================
+   ROOM
+===================================================== */
+BABYLON.SceneLoader.ImportMesh(
+  "",
+  "./glb/",
+  "ICU.glb",
+  scene,
+  (meshes) => {
+    meshes.forEach(m => {
+      m.checkCollisions = true;
+      m.isPickable = false;
+    });
+  }
+);
 
-// PLAYER ROOT
-const player = new BABYLON.TransformNode("player", scene);
+/* =====================================================
+   AVATAR
+===================================================== */
+BABYLON.SceneLoader.ImportMesh(
+  "",
+  "./glb/",
+  "avatar.glb",
+  scene,
+  (meshes) => {
+    meshes.forEach(m => {
+      m.parent = player;
+      m.isPickable = false;
+    });
 
-// AVATAR
-BABYLON.SceneLoader.ImportMesh("", "./glb/", "avatar.glb", scene, (meshes) => {
-  meshes.forEach(m => {
-    m.parent = player;
-    m.isPickable = false;
-  });
+    // Normalize avatar scale
+    player.scaling.setAll(0.01);
 
-  // Normalize avatar
-  player.scaling.setAll(0.01);
+    // Force feet to floor
+    const bounds = meshes[0].getHierarchyBoundingVectors();
+    const height = bounds.max.y - bounds.min.y;
+    player.position.y = height / 2;
+  }
+);
 
-  const bounds = meshes[0].getHierarchyBoundingVectors();
-  const height = bounds.max.y - bounds.min.y;
-  player.position.y = height / 2;
+/* =====================================================
+   VIRTUAL JOYSTICK (LEFT ONLY)
+===================================================== */
+const moveStick = new BABYLON.VirtualJoystick(true);
+moveStick.setJoystickSensibility(0.15);
+moveStick.reverseUpDown = true;
 
-  camera.lockedTarget = player;
+/* =====================================================
+   CAMERA ROTATION — 1 FINGER DRAG
+===================================================== */
+let lastX = null;
+
+scene.onPointerObservable.add((evt) => {
+  const e = evt.event;
+
+  if (evt.type === BABYLON.PointerEventTypes.POINTERDOWN) {
+    // Ignore joystick touches (left side)
+    if (e.clientX > window.innerWidth * 0.4) {
+      lastX = e.clientX;
+    }
+  }
+
+  if (evt.type === BABYLON.PointerEventTypes.POINTERMOVE && lastX !== null) {
+    const dx = e.clientX - lastX;
+    player.rotation.y += dx * 0.005;
+    lastX = e.clientX;
+  }
+
+  if (evt.type === BABYLON.PointerEventTypes.POINTERUP) {
+    lastX = null;
+  }
 });
 
-// ===== MOBILE JOYSTICK (OFFICIAL BABYLON) =====
-const leftJoystick = new BABYLON.VirtualJoystick(true);
-leftJoystick.setJoystickSensibility(0.15);
-
+/* =====================================================
+   MOVEMENT UPDATE
+===================================================== */
 scene.onBeforeRenderObservable.add(() => {
-  const moveX = leftJoystick.deltaPosition.x;
-  const moveZ = leftJoystick.deltaPosition.y;
+  const speed = 0.04;
 
-  if (Math.abs(moveX) > 0 || Math.abs(moveZ) > 0) {
-    const speed = 0.04;
+  const moveX = moveStick.deltaPosition.x;
+  const moveZ = moveStick.deltaPosition.y;
+
+  if (Math.abs(moveX) > 0.01 || Math.abs(moveZ) > 0.01) {
     const forward = new BABYLON.Vector3(
       Math.sin(player.rotation.y),
       0,
@@ -107,6 +176,9 @@ scene.onBeforeRenderObservable.add(() => {
   }
 });
 
+/* =====================================================
+   RENDER LOOP
+===================================================== */
 engine.runRenderLoop(() => scene.render());
 window.addEventListener("resize", () => engine.resize());
 </script>
